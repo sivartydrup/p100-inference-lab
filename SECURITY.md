@@ -1,11 +1,21 @@
-# Security
+# Security and planned control boundary
 
-Phase 1 is a single-administrator application accessed through an SSH tunnel. A bearer token of at least 32 characters is mandatory at startup and on every API route. Generate it randomly; length alone does not provide entropy. Tokens are not stored in browser storage, URLs or audit records. Use one backend worker and loopback binding. Do not commit private environment files or databases.
+All `/api/*` routes require a randomly generated bearer token (at least 32 characters). `/healthz` and static UI assets are public. Authentication uses constant-time comparison; no browser cookies or CORS are enabled. Token stays only in React memory and clears on reload/disconnect. API responses disable caching. Never put credentials in URLs, source control, browser storage or frontend build variables. Rotate the token file and recreate the container; open tabs must reconnect with the new token.
 
-Controls default off. Enabling them permits only start/stop for three hard-coded systemd user units. The application provides no remote command execution API, sudo integration or service file editor. Treat the token as full lab administrator access, including manual benchmark writes. Rotate by replacing the private environment value and restarting the backend. Disconnect clears the tab's token; an already-running server request may still finish.
+The requested http://192.168.0.188:3000 endpoint is for a trusted isolated LAN only. HTTP does not encrypt credentials or history. Use the SSH tunnel or an HTTPS gateway described in INSTALL for untrusted networks. There is no internet exposure configured. Authentication is mandatory even on the LAN. A shared token currently permits history writes as well as reads; it has no host management capability. Rate limiting, individual users and roles are future work.
 
-No CORS is enabled; no ambient authentication cookie is used. Static dashboard assets and minimal liveness are public on the loopback listener. Access tokens do not protect unencrypted traffic on a publicly exposed HTTP listener. Keep the tunnel topology. Never put the token into a frontend build variable.
+## Phase 1 boundary
 
-Local account access, browser extensions, malicious model-root filesystem mutation and compromised dependencies are outside this MVP's isolation boundary. Inventory follows no symlinks during normal traversal, caps results and exposes only relative names, but is not a security sandbox against concurrent local attackers. Engine units must have fixed trusted executable arguments and loopback listeners. A timeout does not guarantee cancellation of a systemd job.
+No engine/model control is implemented. The reserved typed control route returns 403 even if LAB_ENABLE_CONTROLS is set. No process startup on app boot, downloads, shell interpretation, arbitrary command/executable/URL/unit/preset input, Docker socket, sudo or host service bus mount exists. The only subprocess calls are fixed argument arrays for read-only nvidia-smi and native user-service status. Native services remain outside Docker; Netdata and SSH are independent.
 
-Report suspected issues privately to the repository owner's contact once published. Until then, contact the project owner directly; do not post tokens, private paths or exploitable host details in a public issue.
+Container runs UID 10001 with no capabilities, no-new-privileges, read-only root and writable data/tmp only. Host proc read-only mount and optional NVIDIA utility devices expose host metadata, so a compromised container remains a risk; this is not a sandbox for untrusted code. Container secret files are local bind mounts, not an encrypted secret vault. Trusted local accounts/filesystems required; inventory symlink avoidance is not protection against concurrent malicious path replacement.
+
+## Proposed narrow control layer (not implemented)
+
+Before adding controls, verify actual Kmic/PXA/qr0n sources, licenses, binaries, launch commands and existing process ownership. Keep the web API unprivileged and separate from a dedicated native host agent. The host agent accepts a versioned schema over a local Unix socket with restrictive permissions; no LAN listener. A per-operation capability and authenticated, authorized administrator request are mandatory; do not reuse a read-only viewer credential.
+
+Allow only a finite set of operations (start/stop, load/unload) against administrator-authored engine IDs, fixed service units and immutable preset/model IDs. Resolve IDs server-side to verified absolute paths; never accept shell strings, arbitrary flags, paths, service names or URLs. Use a single job queue, durable audit intent/outcomes, timeouts, idempotency and observed completion. Enforce GPU ownership/memory preflight, mutually exclusive engine scheduling and cancellation semantics. Require explicit user confirmation before interrupting active inference. Audit authenticated actor, preset hash, request ID and result, without credentials or prompts.
+
+Ship only after HTTPS or a protected tunnel, separated read/control permissions, replay/CSRF review, credential rotation, audit integrity, host agent permission isolation and negative security tests are in place. Model downloads need a separate license/provenance and integrity design. No general shell endpoint at any phase.
+
+Report suspected vulnerabilities privately to the repository owner through their published contact. Do not post secrets, private filesystem paths or working exploits in public issues.

@@ -12,7 +12,7 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 @pytest.fixture
 def client(tmp_path):
-    with TestClient(create_app({"token": TOKEN, "db": tmp_path / "lab.db", "roots": [], "controls": False})) as c:
+    with TestClient(create_app({"token": TOKEN, "db": tmp_path / "lab.db", "roots": [], "controls": False, "telemetry": "live"})) as c:
         yield c
 
 @pytest.mark.parametrize("method,url", [("get", "/api/system"), ("get", "/api/engines"), ("get", "/api/models"), ("get", "/api/benchmarks"), ("post", "/api/benchmarks"), ("post", "/api/engines/kmic/control")])
@@ -35,7 +35,7 @@ def test_health_is_minimal(client):
 
 
 def test_disabled_controls_cannot_execute(client):
-    with patch("lab.main.NativeAdapter.control") as control:
+    with patch("lab.adapters.run") as control:
         assert client.post("/api/engines/kmic/control", headers=AUTH, json={"action": "start"}).status_code == 403
         control.assert_not_called()
 
@@ -44,27 +44,19 @@ def test_control_input_is_closed(client, engine, body):
     assert client.post(f"/api/engines/{engine}/control", headers=AUTH, json=body).status_code == 422
 
 
-def test_control_audit_and_failure(tmp_path):
-    import sqlite3
-    db = tmp_path / "lab.db"
-    with TestClient(create_app({"token": TOKEN, "db": db, "controls": True})) as c:
-        with patch("lab.main.NativeAdapter.control"), patch("lab.main.NativeAdapter.status", return_value={"state": "active"}):
-            assert c.post("/api/engines/pxa/control", headers=AUTH, json={"action": "start"}).status_code == 200
-        with patch("lab.main.NativeAdapter.control", side_effect=subprocess.TimeoutExpired("systemctl", 20)):
-            assert c.post("/api/engines/pxa/control", headers=AUTH, json={"action": "stop"}).status_code == 502
-    with sqlite3.connect(db) as conn:
-        assert conn.execute("SELECT outcome FROM audit ORDER BY id").fetchall() == [("succeeded",), ("failed_or_timed_out",)]
+def test_controls_cannot_be_enabled_by_config(tmp_path):
+    with TestClient(create_app({"token": TOKEN, "db": tmp_path / "lab.db", "controls": True})) as c:
+        assert c.post("/api/engines/pxa/control", headers=AUTH, json={"action": "start"}).status_code == 403
 
 
-def test_fixed_argv_no_shell():
+def test_adapter_is_read_only():
+    assert not hasattr(NativeAdapter("kmic"), "control")
     with patch("lab.adapters.run") as run:
-        run.return_value.returncode = 0
-        NativeAdapter("qr0n").control("start")
-        run.assert_called_once_with(["systemctl", "--user", "--no-ask-password", "start", "p100-lab-qr0n.service"], timeout=20)
+        run.return_value.stdout = "active"
+        assert NativeAdapter("kmic").status()["state"] == "active"
+        run.assert_called_once_with(["systemctl", "--user", "is-active", "p100-lab-kmic.service"])
     with pytest.raises(ValueError):
         NativeAdapter("kmic; id")
-    with pytest.raises(ValueError):
-        NativeAdapter("kmic").control("sh")
 
 
 def test_benchmark_persistence_and_validation(client):
@@ -115,7 +107,7 @@ def test_gpu_unavailable_values():
 
 
 def test_system_and_empty_inventory(client):
-    with patch("lab.main.gpu_metrics", return_value={"available": False, "devices": [], "message": "No GPU"}):
+    with patch("lab.telemetry.gpu_metrics", return_value={"available": False, "devices": [], "message": "No GPU"}):
         assert "cpu_percent" in client.get("/api/system", headers=AUTH).json()
     assert client.get("/api/models", headers=AUTH).json()["items"] == []
 
@@ -126,3 +118,46 @@ def test_reopen_keeps_benchmark(tmp_path):
         c.post("/api/benchmarks", headers=AUTH, json={"engine": "pxa", "model": "x", "tokens_per_second": 1})
     with TestClient(create_app(cfg)) as c:
         assert len(c.get("/api/benchmarks", headers=AUTH).json()["items"]) == 1
+
+def test_security_headers_and_production_dashboard(tmp_path):
+    static = tmp_path / "dist"
+    static.mkdir()
+    (static / "index.html").write_text("<!doctype html><title>P100 Inference Lab</title>")
+    with TestClient(create_app({"token": TOKEN, "db": tmp_path / "lab.db", "static": static})) as c:
+        assert "P100 Inference Lab" in c.get("/").text
+        response = c.get("/api/models", headers=AUTH)
+        assert response.headers["Cache-Control"] == "no-store"
+        assert response.headers["X-Frame-Options"] == "DENY"
+        assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+        assert c.get("/api/models").status_code == 401
+
+
+def test_mock_never_reads_hardware(tmp_path):
+    with patch("lab.telemetry.gpu_metrics") as gpu, patch("lab.telemetry.psutil.cpu_percent") as cpu:
+        with TestClient(create_app({"token": TOKEN, "db": tmp_path / "mock.db", "telemetry": "mock"})) as c:
+            data = c.get("/api/system", headers=AUTH).json()
+            assert data["mode"] == "mock"
+            assert "MOCK" in data["gpus"]["devices"][0]["name"]
+        gpu.assert_not_called()
+        cpu.assert_not_called()
+
+
+def test_invalid_telemetry_mode():
+    with pytest.raises(ValueError):
+        create_app({"telemetry": "remote-shell"})
+
+
+def test_secret_file(monkeypatch, tmp_path):
+    secret = tmp_path / "token"
+    secret.write_text(TOKEN + "\n")
+    monkeypatch.setenv("LAB_API_TOKEN_FILE", str(secret))
+    with TestClient(create_app({"db": tmp_path / "secret.db"})) as c:
+        assert c.get("/api/models", headers=AUTH).status_code == 200
+
+
+def test_live_gpu_command_is_fixed():
+    with patch("lab.adapters.run") as run:
+        run.return_value.returncode = 0
+        run.return_value.stdout = ""
+        gpu_metrics()
+        assert run.call_args.args[0] == ["nvidia-smi", "--query-gpu=index,name,memory.total,memory.used,temperature.gpu,power.draw,utilization.gpu", "--format=csv,noheader,nounits"]

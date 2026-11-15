@@ -29,12 +29,6 @@ class NativeAdapter:
         return {"id": self.id, "unit": self.unit, "state": state,
                 "note": "Service state only; inference readiness is not probed."}
 
-    def control(self, action: str):
-        if action not in {"start", "stop"}:
-            raise ValueError("Unsupported action")
-        result = run(["systemctl", "--user", "--no-ask-password", action, self.unit], timeout=20)
-        if result.returncode:
-            raise RuntimeError("Service operation failed; inspect the user service journal on the host.")
 
 
 def gpu_metrics():

@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/*.egg-info
+**/.pytest_cache
+**/*.tsbuildinfo
+**/.env
+**/*.sqlite3*
+secrets
+work

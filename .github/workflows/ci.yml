@@ -4,17 +4,19 @@ permissions:
   contents: read
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install -e './backend[test]'
+      - run: pip install -c backend/requirements.lock -e './backend[test]'
       - run: python -m pytest -q
         working-directory: backend
+      - run: pip install pip-audit
+      - run: pip-audit -r backend/requirements.lock
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,3 +34,11 @@ jobs:
         working-directory: frontend
       - run: npm test
         working-directory: frontend
+  container:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose config --quiet
+      - run: docker compose -f compose.yaml -f compose.gpu.yaml config --quiet
+      - run: docker build -t p100-lab:phase1 .
+      - run: python3 tests/container_smoke.py

@@ -1,37 +1,41 @@
 # Architecture and API
 
-Browser (React/TypeScript) → same-origin FastAPI on Ubuntu → read-only psutil / nvidia-smi, bounded model inventory, SQLite, and fixed native systemd user adapters. Windows reaches Ubuntu through an ordinary SSH port forward. The backend never invokes SSH and never accepts a command, executable, URL, arbitrary unit name or model path from an API caller.
+Windows browser → Ubuntu port 3000 → a non-root container containing compiled React/TypeScript assets and FastAPI → host read-only CPU/RAM/NVIDIA telemetry, read-only configured model mounts and a persistent SQLite volume. Docker builds the frontend on Ubuntu; Node is not needed on the production host after image build. Windows has no production role beyond the browser.
 
-## Native adapters
+## Telemetry and engine adapters
 
-Kmic, PXA and qr0n use a common NativeAdapter with immutable unit names. systemctl --user is-active provides service state; unavailable means no usable user service manager or unknown unit. This is service status, not process discovery or HTTP readiness. start/stop uses argument arrays with subprocess shell disabled, fixed units, a 20-second timeout and a process-local lock. No engine is installed, compiled or launched on application startup. Exact upstream binary provenance/versions and health protocols remain host configuration work. PXA upstream reference: https://github.com/poisonxa16/pxa (reviewed 2026-11-15; no code bundled).
+LAB_TELEMETRY is mock (default on Windows) or live (default elsewhere; explicitly set in Compose). Samples identify mode and scope. Mock data is a fixed simulated development fixture, never an inferred P100 result. Live CPU/RAM use /host/proc in Compose; disk is the DB volume filesystem. GPU telemetry uses one fixed nvidia-smi query with a five-second timeout, tolerates absent tools/drivers and unknown metrics, and issues no tuning commands. Netdata is neither reconfigured nor proxied.
 
-## API
+NativeAdapter registers only kmic, pxa and qr0n, validates IDs and queries fixed user-service names. It has no control method. Container service state is unavailable because host DBus/systemd are deliberately not mounted. This distinguishes registration from discovery, process health and inference readiness. No engine sources, model weights or engine-specific launch flags are bundled. Exact upstream identities are unverified and must be recorded during host acceptance.
 
-Every /api endpoint requires Authorization: Bearer TOKEN. No CORS middleware or browser credential cookies. API documentation endpoints are disabled. JSON control and benchmark payloads reject extra fields.
+Model roots are an administrator-only JSON array of absolute paths. Scans expose relative names/sizes, skip symlinks and bound matching files/directories. API callers cannot supply roots. Host-local malicious filesystem races are outside this boundary.
 
-| Method | Path | Purpose |
+## API contract
+
+Every /api route requires `Authorization: Bearer TOKEN`. Unknown/extra payload fields are rejected; floating values must be finite and positive. No CORS or ambient credential cookies. Interactive API docs are disabled.
+
+| Method | Path | Behavior |
 |---|---|---|
 | GET | /healthz | Minimal public liveness |
-| GET | /api/system | Backend host CPU, memory, DB filesystem usage and GPUs |
-| GET | /api/engines | Fixed three services and control capability |
-| GET | /api/models | Configured-root inventory, relative names, bytes, warnings |
-| GET | /api/benchmarks?limit=50 | Newest manual results, max 200 |
-| POST | /api/benchmarks | Record a manual measurement; does not run inference |
-| POST | /api/engines/{kmic,pxa,qr0n}/control | {"action":"start"} or {"action":"stop"}; disabled by default |
+| GET | /api/system | Mode/scope, timestamp, CPU, RAM, DB disk, GPUs |
+| GET | /api/engines | Three registered adapters, service states, controls_enabled=false |
+| GET | /api/models | Relative model filenames/sizes, scan warnings/truncation |
+| GET | /api/benchmarks?limit=50 | Newest results, limit 1–200 |
+| POST | /api/benchmarks | Store a manual measurement, never run inference |
+| POST | /api/engines/{kmic,pxa,qr0n}/control | Reserved strict start/stop schema; always 403 |
 
-Example manual record body:
+Example benchmark payload:
 
-~~~json
-{"engine":"kmic","model":"example.gguf","tokens_per_second":12.5,"notes":"Manual run; 128 output tokens; configuration recorded separately"}
-~~~
+```json
+{"engine":"kmic","model":"example.gguf","tokens_per_second":12.5,"notes":"Manual trial, record hardware/preset details here"}
+```
 
-Use a trusted API client with the bearer token. Keep secrets out of command history and screenshots. Manual results are unverified self-reported measurements; the API records source=manual and a server-side UTC timestamp. Benchmark writes remain enabled with valid authentication even when engine controls are disabled.
+Benchmark records are self-reported, not verified measurements. The server adds source=manual and a UTC timestamp. UI shows history; write through an authenticated API client. UI polls every five seconds, displays stale-data warnings on failure and clears token/data on disconnect. In-flight server operations may complete after disconnect.
 
-## SQLite
+## Storage and operations
 
-benchmarks: id, created_at, engine, model, tokens_per_second, notes, source. audit: id, created_at, engine, action, outcome. Queries use bound parameters and request-scoped connections. A requested audit row is committed before a service operation. Success/failure updates follow it; a crash can leave requested as an intentionally indeterminate outcome. Audit has no token values. One shared token is an administrator capability, so attribution is to that capability rather than individual users. Local host users with DB write access can modify history; this is not a tamper-proof audit store.
+SQLite benchmarks: id, created_at, engine, model, tokens_per_second, notes, source. The inherited empty audit table is reserved for future control design; no host actions are recorded or performed in Phase 1. Connections are request-scoped, SQL values are bound, and Docker stores data in lab_data. Initial tables use CREATE TABLE IF NOT EXISTS; future schema changes require migrations. One Uvicorn worker, bounded container memory/CPU and restart-unless-stopped. Healthcheck validates app liveness, not GPU/engine readiness. DB backup/restore and retention need operational care; no automatic deletion is implemented.
 
-## Boundaries
+See SECURITY.md for the separate authenticated host-agent proposal. Startup cannot alter native engines, Netdata, SSH, CUDA or drivers.
 
-Read operations do not change GPU clocks/power, files, engines or Netdata. SQLite writes are restricted to history/audit. The backend can operate only as its Unix user, but compromised application code would inherit that user's permissions; run a dedicated account for stronger isolation in a future deployment. The model filesystem must be trusted against concurrent malicious changes. No plugin loading, root helper, Docker socket, download endpoint, model switching, restart action or remote shell exists.
+Deployment references: [Docker Compose GPU reservations](https://docs.docker.com/compose/how-tos/gpu-support/) and [NVIDIA utility driver capability](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/docker-specialized.html). These are optional host prerequisites, not installed by this project.

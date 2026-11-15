@@ -1,0 +1,12 @@
+# Optional: requires an already configured NVIDIA Container Toolkit.
+services:
+  lab:
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

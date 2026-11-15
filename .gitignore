@@ -10,3 +10,7 @@ config.local.json
 *.tsbuildinfo
 test-results/
 playwright-report/
+
+*.tsbuildinfo
+secrets/
+work/

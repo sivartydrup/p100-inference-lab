@@ -1,0 +1,32 @@
+name: p100-inference-lab
+services:
+  lab:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${LAB_BIND_IP:-192.168.0.188}:3000:8000"
+    environment:
+      LAB_API_TOKEN_FILE: /run/secrets/lab_api_token
+      LAB_TELEMETRY: live
+      LAB_PROCFS: /host/proc
+      LAB_MODEL_ROOTS: '[]'
+    secrets:
+      - lab_api_token
+    volumes:
+      - lab_data:/data
+      - /proc:/host/proc:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    mem_limit: 512m
+    cpus: 1.0
+    stop_grace_period: 15s
+secrets:
+  lab_api_token:
+    file: ./secrets/api_token.txt
+volumes:
+  lab_data:

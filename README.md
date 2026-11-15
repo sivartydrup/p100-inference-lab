@@ -1,56 +1,69 @@
 # P100 Inference Lab
 
-A small, native Ubuntu inference management lab with a React/TypeScript dashboard, FastAPI backend and SQLite history. Designed for the P100 host at 192.168.0.188; not tied to a particular GPU count.
+An Ubuntu-first, open-source observation and benchmarking foundation for native NVIDIA inference engines. React/TypeScript UI, Python FastAPI API and persistent SQLite history, packaged together in Docker Compose. Production runs wholly on the Ubuntu 24.04 server; Windows is development and browser access only.
 
-**Phase 1:** live CPU, RAM, lab-disk and NVIDIA GPU monitoring; Kmic/PXA/qr0n user-service status; bounded read-only GGUF and safetensors inventory; manual benchmark history; authenticated, opt-in start/stop controls. No model loader, downloads, inference runner, tuning or arbitrary command endpoint.
+## Phase 1
 
-The backend measures **the machine where it runs**. Run it on Ubuntu for server telemetry. Windows development metrics are not remote server metrics. Service activity is not an engine readiness check. Existing installations are not auto-discovered or changed. No SSH or Netdata configuration is changed by this project.
+- Authenticated CPU/RAM, database-disk and NVIDIA GPU telemetry; graceful operation without GPUs.
+- Clearly labelled simulated telemetry for Windows development (`LAB_TELEMETRY=mock`). Mock values are never benchmark results.
+- Read-only adapter inventory for Kmic, PXA and qr0n; bounded GGUF/safetensors file inventory.
+- Manual benchmark recording through the authenticated API and history in the dashboard.
+- Non-root container, persistent database volume, optional NVIDIA utility integration, tests and CI.
 
-## Start here
+Engine/model controls are **not implemented**. The reserved control endpoint always returns 403 after authentication. There is no arbitrary command API, shell interpreter, SSH automation, model downloader, driver installer or Docker socket mount. Existing Netdata and native engines remain independent.
 
-See [installation](docs/INSTALL.md), [architecture and API](docs/ARCHITECTURE.md), [security](SECURITY.md), and [benchmark/tuning roadmap](docs/ROADMAP.md). Engine service examples are in deploy/ and must be adapted to verified existing binaries before use.
+## Ubuntu deployment (manual, after review)
 
-## Development
+See [installation and acceptance checks](docs/INSTALL.md). The intended browser URL is **http://192.168.0.188:3000**. The static UI is public; every `/api/*` operation requires a random bearer token. Plain HTTP does not encrypt that token; use only a trusted isolated LAN, or choose the documented SSH tunnel/HTTPS alternative. Management remains disabled in every topology.
 
-Python 3.11+ and Node 22.12+ (or supported newer Node) are required.
+```bash
+# On Ubuntu, after checking prerequisites and reviewing the installation guide:
+mkdir -p secrets
+python3 -c 'import secrets,pathlib; pathlib.Path("secrets/api_token.txt").write_text(secrets.token_urlsafe(48))'
+chmod 700 secrets
+chmod 644 secrets/api_token.txt # non-root container must read the bind-mounted secret
+# Host directory stays private; do not commit this file.
+docker compose up -d --build
+```
 
-~~~bash
+No automatic deployment is configured. Docker Engine/Compose and NVIDIA Container Toolkit, if GPU monitoring is wanted, must already be installed and approved. The app never changes drivers, CUDA, SSH, Netdata or engine services.
+
+## Windows development
+
+Python 3.11+ and Node 22.12+ required. In PowerShell:
+
+```powershell
 cd backend
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -e '.[test]'
-export LAB_API_TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
-# Keep this token private; use the same value in the dashboard.
-uvicorn lab.main:app --host 127.0.0.1 --port 8000
-~~~
+py -3 -m venv .venv
+.venv\Scripts\python.exe -m pip install -e '.[test]'
+$env:LAB_API_TOKEN = .venv\Scripts\python.exe -c 'import secrets; print(secrets.token_urlsafe(48))'
+$env:LAB_TELEMETRY = 'mock'
+.venv\Scripts\python.exe -m uvicorn lab.main:app --host 127.0.0.1 --port 8000
+```
 
-In another terminal:
+Keep the generated token private; enter it in the dashboard. In another terminal, `cd frontend`, `npm ci`, `npm run dev`. Open http://127.0.0.1:5173. Vite proxies the API locally. The token stays in tab memory only.
 
-~~~bash
+## Checks
+
+```powershell
+backend\.venv\Scripts\python.exe -m pytest -q backend/tests
 cd frontend
 npm ci
-npm run dev
-~~~
-
-Open http://127.0.0.1:5173. Vite proxies /api to the local backend; do not expose the development server on the LAN. Windows: activate .venv/Scripts/Activate.ps1 and set environment variables with PowerShell. Backend imports do not run commands or create a database; startup requires a token of at least 32 characters.
-
-## Validation
-
-~~~bash
-cd backend
-python -m pytest -q
-cd ../frontend
-npm ci
 npm run build
-npm audit --audit-level=high
 npx playwright install chromium
 npm test
-~~~
+npm audit --audit-level=high
+cd ..
+docker compose config --quiet
+docker compose -f compose.yaml -f compose.gpu.yaml config --quiet
+docker build -t p100-lab:phase1 .
+backend\.venv\Scripts\python.exe tests/container_smoke.py
+```
 
-Tests cover authentication, disabled controls, strict inputs, fixed command arguments, audit outcomes, missing GPU/systemd handling, inventory bounds/symlinks, and benchmark persistence. CI runs backend tests on Ubuntu and builds the dashboard, then runs browser checks with fixture data. Browser checks verify authentication errors, disabled controls, token clearing and mobile layout. Real P100 telemetry and user services require host acceptance checks in the installation guide.
+CI runs backend tests, browser tests, frontend build/audit and the Linux container smoke test. Real server/GPU acceptance is manual and separate from mock tests.
 
-## License decision pending
+Read [architecture](docs/ARCHITECTURE.md), [security/control design](SECURITY.md), [roadmap](docs/ROADMAP.md), [dependency licenses](docs/LICENSES.md) and [contributing](CONTRIBUTING.md).
 
-**Proposed: MIT.** The complete candidate text is in [LICENSE.proposed](LICENSE.proposed). It is not an approved license grant yet. Confirm MIT (or choose Apache-2.0) before renaming it to LICENSE and publishing. Third-party engines, dependencies and model weights retain their own licenses. No engine sources or weights are bundled.
+## License
 
-No GitHub repository has been created. Before publishing, confirm repository name, visibility and license.
+Apache-2.0 for this project. Dependencies, container OS packages, external engines and model weights retain their own licenses. No engines, NVIDIA libraries or models are bundled in the source. Exact engine upstreams and licenses require host verification before integration or redistribution.

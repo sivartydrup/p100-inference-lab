@@ -1,3 +1,5 @@
+# ARCHIVED native-service example; not part of Phase 1 Compose deployment.
+# Do not install or enable this template from the web dashboard.
 [Unit]
 Description=P100 Inference Lab management API
 

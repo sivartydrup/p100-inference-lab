@@ -2,7 +2,7 @@
 
 ## Phase 1 — current foundation
 
-Unified observation, explicit service status, read-only inventory, manual benchmark records and opt-in fixed service controls. No synthetic results or implied P100 performance claims. Host verification is required before operating real engines.
+Unified observation, explicit service status, read-only inventory, manual benchmark records and disabled reserved control endpoints. Simulated telemetry is explicitly labelled; no synthetic benchmark results or implied P100 performance claims. Host verification is required before operating real engines.
 
 ## Phase 2 — reproducible measurements
 
@@ -16,4 +16,4 @@ Versioned administrator-authored presets; validate engine flags against the pinn
 
 ## Phase 4 — custom engine experiments
 
-Choose a baseline only after comparable measurements. Keep experimental kernels/forks separate from management code. Capture compiler/CUDA targets and Pascal-specific support; benchmark changes against a pinned baseline. Review upstream licenses before distributing forks or linking components. Add multiuser roles, HTTPS, secret rotation and a separate worker permission boundary before expanding beyond a trusted single-administrator tunnel.
+Choose a baseline only after comparable measurements. Keep experimental kernels/forks separate from management code. Capture compiler/CUDA targets and Pascal-specific support; benchmark changes against a pinned baseline. Review upstream licenses before distributing forks or linking components. Add multiuser roles, HTTPS, secret rotation and a separate worker permission boundary before expanding beyond a trusted single-administrator trusted LAN/tunnel.
