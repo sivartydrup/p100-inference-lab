@@ -305,6 +305,31 @@ footer {
   border-top: 1px solid #2b373d;
   padding-top: 22px;
 }
+.fixture-form input,
+.fixture-form select {
+  display: block;
+  width: 100%;
+  margin: 8px 0 16px;
+  padding: 10px;
+  background: #101719;
+  color: #e9edf1;
+  border: 1px solid #53656d;
+  border-radius: 7px;
+}
+.fixture-form > label {
+  display: block;
+  max-width: 420px;
+}
+.fixture-form fieldset {
+  border: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+}
+.fixture-detail {
+  margin-top: 22px;
+}
 @media (max-width: 1100px) {
   .stats {
     grid-template-columns: repeat(2, 1fr);

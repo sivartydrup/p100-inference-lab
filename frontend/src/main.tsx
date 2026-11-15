@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+import { BenchmarkLab, type Job, type Presets } from "./BenchmarkLab";
 type GPU = {
   index: string;
   name: string;
@@ -34,6 +35,8 @@ type Snapshot = {
   engines: { items: Engine[]; controls_enabled: boolean };
   models: { items: Model[]; warnings: string[]; truncated: boolean };
   benchmarks: { items: Bench[] };
+  jobs: { items: Job[] };
+  presets: Presets;
 };
 const POLL_INTERVAL_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -46,6 +49,7 @@ function App() {
     [error, setError] = useState(""),
     [receivedAt, setReceivedAt] = useState<number | null>(null),
     [now, setNow] = useState(Date.now());
+  const [refreshSequence, setRefreshSequence] = useState(0);
   async function api(path: string, signal: AbortSignal) {
     const response = await fetch("/api/" + path, {
       signal,
@@ -82,19 +86,22 @@ function App() {
         controller.abort();
       }, REQUEST_TIMEOUT_MS);
       try {
-        const [system, engines, models, benchmarks] = await Promise.all([
-          api("system", controller.signal),
-          api("engines", controller.signal),
-          api("models", controller.signal),
-          api("benchmarks", controller.signal),
-        ]);
+        const [system, engines, models, benchmarks, jobs, presets] =
+          await Promise.all([
+            api("system", controller.signal),
+            api("engines", controller.signal),
+            api("models", controller.signal),
+            api("benchmarks", controller.signal),
+            api("benchmark-jobs", controller.signal),
+            api("benchmark-presets", controller.signal),
+          ]);
         // Suspended tabs can delay timeout callbacks: reject late responses too.
         if (Date.now() - startedAt >= REQUEST_TIMEOUT_MS) {
           timedOut = true;
           throw new Error("Snapshot deadline exceeded");
         }
         if (!disposed) {
-          setData({ system, engines, models, benchmarks });
+          setData({ system, engines, models, benchmarks, jobs, presets });
           const received = Date.now();
           setReceivedAt(received);
           setNow(received);
@@ -122,7 +129,7 @@ function App() {
       document.removeEventListener("visibilitychange", updateAge);
       activeRequest?.abort();
     };
-  }, [connected, token]);
+  }, [connected, token, refreshSequence]);
   // Use local receipt time: the server's wall clock may differ from the browser.
   const stale = Boolean(
     data &&
@@ -138,12 +145,13 @@ function App() {
         <div className="brand">
           P100<span>INFERENCE LAB</span>
         </div>
-        <div className="phase">PHASE 01 / OBSERVE</div>
+        <div className="phase">PHASE 02 / FIXTURE LAB</div>
         <nav>
           <a href="#overview">Overview</a>
           <a href="#engines">Engine services</a>
           <a href="#models">Model library</a>
           <a href="#history">Benchmark history</a>
+          <a href="#fixture-lab">Fixture lab</a>
         </nav>
         <div className="aside-note">
           Native Ubuntu engines
@@ -386,9 +394,7 @@ function App() {
                 <section id="history">
                   <div className="section-title">
                     <h2>Benchmark history</h2>
-                    <span className="muted">
-                      Manual results · automated runner planned
-                    </span>
+                    <span className="muted">Manual measurements only</span>
                   </div>
                   <div className="table-wrap">
                     <table>
@@ -421,13 +427,20 @@ function App() {
                     </p>
                   )}
                 </section>
+                <BenchmarkLab
+                  token={token}
+                  jobs={data.jobs.items}
+                  presets={data.presets}
+                  stale={stale}
+                  onChange={() => setRefreshSequence((n) => n + 1)}
+                />
               </>
             )}
           </>
         )}
         <footer>
-          P100 Inference Lab / Phase 1 · No inference requests are issued by
-          this dashboard.
+          P100 Inference Lab / Phase 2 foundation · No inference requests are
+          issued by this dashboard.
         </footer>
       </main>
     </div>
