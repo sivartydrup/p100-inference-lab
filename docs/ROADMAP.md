@@ -17,3 +17,7 @@ Versioned administrator-authored presets; validate engine flags against the pinn
 ## Phase 4 — custom engine experiments
 
 Choose a baseline only after comparable measurements. Keep experimental kernels/forks separate from management code. Capture compiler/CUDA targets and Pascal-specific support; benchmark changes against a pinned baseline. Review upstream licenses before distributing forks or linking components. Add multiuser roles, HTTPS, secret rotation and a separate worker permission boundary before expanding beyond a trusted single-administrator trusted LAN/tunnel.
+
+## Phase 2 foundation status
+
+The fixture-only job lifecycle is implemented for review: durable queue, separate locked worker, bounded fixed presets, second job credential, idempotency, cancellation, timeout/failure/interruption, raw samples, warmup exclusion, statistics/provenance and export. Real measurements remain unimplemented. Hardware/model readiness, verified release-specific protocols and a separately reviewed native execution boundary are prerequisites. See PHASE2.md. No synthetic fixture metric is a claim about P100 or GTX 950 performance.

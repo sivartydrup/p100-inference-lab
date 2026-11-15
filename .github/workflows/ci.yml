@@ -40,5 +40,6 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker compose config --quiet
       - run: docker compose -f compose.yaml -f compose.gpu.yaml config --quiet
+      - run: docker compose -f compose.yaml -f compose.fixtures.yaml --profile fixtures config --quiet
       - run: docker build -t p100-lab:phase1 .
       - run: python3 tests/container_smoke.py

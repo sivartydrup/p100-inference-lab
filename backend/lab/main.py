@@ -7,13 +7,16 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .adapters import ENGINE_IDS, NativeAdapter, inventory
 from .telemetry import sample
+from . import jobs
 
 
 class Benchmark(BaseModel):
@@ -34,6 +37,11 @@ def create_app(config=None):
     token_file = os.getenv("LAB_API_TOKEN_FILE")
     token = config.get("token", Path(token_file).read_text().strip() if token_file else os.getenv("LAB_API_TOKEN", ""))
     controls = False  # Phase 1 cannot enable host management.
+    fixtures = config.get("fixture_jobs", os.getenv("LAB_ENABLE_FIXTURE_JOBS", "false").lower() == "true")
+    job_token_file = os.getenv("LAB_JOB_TOKEN_FILE")
+    job_token = config.get("job_token", (
+        Path(job_token_file).read_text().strip() if job_token_file else os.getenv("LAB_JOB_TOKEN", "")
+    )) if fixtures else ""
     mode = config.get("telemetry", os.getenv("LAB_TELEMETRY", "mock" if platform.system() == "Windows" else "live"))
     if mode not in {"mock", "live"}:
         raise ValueError("LAB_TELEMETRY must be mock or live")
@@ -46,7 +54,10 @@ def create_app(config=None):
     async def lifespan(app):
         if len(token) < 32:
             raise RuntimeError("Set LAB_API_TOKEN to a random secret of at least 32 characters")
+        if fixtures and (len(job_token) < 32 or hmac.compare_digest(token.encode(), job_token.encode())):
+            raise RuntimeError("Fixture jobs require a distinct LAB_JOB_TOKEN of at least 32 characters")
         db.parent.mkdir(parents=True, exist_ok=True)
+        jobs.initialize(db)
         with sqlite3.connect(db) as conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS benchmarks (
@@ -60,7 +71,7 @@ def create_app(config=None):
             """)
         yield
 
-    app = FastAPI(title="P100 Inference Lab", version="0.1.0", lifespan=lifespan,
+    app = FastAPI(title="P100 Inference Lab", version="0.2.0", lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.middleware("http")
@@ -80,6 +91,14 @@ def create_app(config=None):
             raise HTTPException(401, "Valid bearer token required", headers={"WWW-Authenticate": "Bearer"})
 
     auth = [Depends(authenticate)]
+
+    def authorize_jobs(x_lab_job_token: str | None = Header(default=None)):
+        if not fixtures:
+            raise HTTPException(403, "Fixture jobs are disabled by the administrator")
+        if not x_lab_job_token or not hmac.compare_digest(x_lab_job_token.encode(), job_token.encode()):
+            raise HTTPException(403, "A separate benchmark job credential is required")
+
+    job_auth = [*auth, Depends(authorize_jobs)]
 
     @app.get("/healthz")
     def health():
@@ -114,6 +133,45 @@ def create_app(config=None):
                                   (datetime.now(timezone.utc).isoformat(), request.engine, request.model,
                                    request.tokens_per_second, request.notes, "manual"))
             return {"id": cursor.lastrowid, "source": "manual"}
+
+    @app.get("/api/benchmark-presets", dependencies=auth)
+    def benchmark_presets():
+        return {"items": jobs.PRESETS, "submission_enabled": fixtures,
+                "real_engines_enabled": False, "max_pending": jobs.MAX_PENDING}
+
+    @app.get("/api/benchmark-jobs", dependencies=auth)
+    def benchmark_jobs(limit: int = Query(default=50, ge=1, le=100)):
+        return {"items": jobs.list_jobs(db, limit)}
+
+    @app.post("/api/benchmark-jobs", dependencies=job_auth)
+    def submit_job(request: jobs.JobRequest, request_key: UUID = Header(alias="Idempotency-Key")):
+        try:
+            job, replayed = jobs.enqueue(db, request, str(request_key))
+        except jobs.IdempotencyConflict:
+            raise HTTPException(409, "Idempotency key was already used with different settings")
+        except jobs.QueueFull:
+            raise HTTPException(429, "Fixture queue is full; wait for jobs to finish",
+                                headers={"Retry-After": "5"})
+        return JSONResponse({"job": job, "replayed": replayed}, status_code=200 if replayed else 201)
+
+    @app.get("/api/benchmark-jobs/{job_id}", dependencies=auth)
+    def job_detail(job_id: UUID):
+        job = jobs.get_job(db, str(job_id))
+        if job is None:
+            raise HTTPException(404, "Benchmark job not found")
+        return job
+
+    @app.get("/api/benchmark-jobs/{job_id}/export", dependencies=auth)
+    def job_export(job_id: UUID):
+        return JSONResponse(job_detail(job_id), headers={
+            "Content-Disposition": f'attachment; filename="fixture-job-{job_id}.json"'})
+
+    @app.post("/api/benchmark-jobs/{job_id}/cancel", dependencies=job_auth)
+    def cancel_job(job_id: UUID):
+        job = jobs.cancel(db, str(job_id))
+        if job is None:
+            raise HTTPException(404, "Benchmark job not found")
+        return job
 
     static = Path(config.get("static", os.getenv("LAB_STATIC_DIR", "../frontend/dist")))
     if static.is_dir():

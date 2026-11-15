@@ -1,0 +1,39 @@
+# Development/test opt-in only. Never needed for Phase 1 production monitoring.
+services:
+  lab:
+    image: p100-inference-lab:phase2
+    environment:
+      LAB_ENABLE_FIXTURE_JOBS: "true"
+      LAB_JOB_TOKEN_FILE: /run/secrets/lab_job_token
+    secrets:
+      - lab_job_token
+  fixture-worker:
+    profiles: [fixtures]
+    build: .
+    image: p100-inference-lab:phase2
+    command: [python, -m, lab.worker]
+    network_mode: none
+    environment:
+      LAB_ENABLE_FIXTURE_JOBS: "true"
+      LAB_DB: /data/lab.sqlite3
+    volumes:
+      - lab_data:/data
+    depends_on:
+      lab:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 50
+    mem_limit: 256m
+    cpus: 0.5
+    stop_grace_period: 10s
+    healthcheck:
+      disable: true
+secrets:
+  lab_job_token:
+    file: ./secrets/job_token.txt

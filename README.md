@@ -2,7 +2,7 @@
 
 An Ubuntu-first, open-source observation and benchmarking foundation for native NVIDIA inference engines. React/TypeScript UI, Python FastAPI API and persistent SQLite history, packaged together in Docker Compose. Production runs wholly on the Ubuntu 24.04 server; Windows is development and browser access only.
 
-## Phase 1
+## Delivered foundation
 
 - Authenticated CPU/RAM, database-disk and NVIDIA GPU telemetry; graceful operation without GPUs.
 - Clearly labelled simulated telemetry for Windows development (`LAB_TELEMETRY=mock`). Mock values are never benchmark results.
@@ -11,6 +11,12 @@ An Ubuntu-first, open-source observation and benchmarking foundation for native 
 - Non-root container, persistent database volume, optional NVIDIA utility integration, tests and CI.
 
 Engine/model controls are **not implemented**. The reserved control endpoint always returns 403 after authentication. There is no arbitrary command API, shell interpreter, SSH automation, model downloader, driver installer or Docker socket mount. Existing Netdata and native engines remain independent.
+
+## Phase 2 benchmark foundation (fixture-only)
+
+The optional [fixture benchmark lab](docs/PHASE2.md) adds a durable job queue, separate non-root single-job worker, strict presets, cancellation/deadlines, raw warmup/trial samples, summary statistics, provenance and JSON export. It uses deterministic simulated metrics, never launches a native engine, and never adds synthetic results to manual benchmark history.
+
+Job submission/cancellation are disabled by default. Enabling fixtures requires a second independent secret; the normal dashboard token alone cannot queue jobs. The worker has no network, GPU devices, host proc mount, Docker socket, model files or authentication secrets in the provided Compose setup. Read the opt-in guide before running it. No Phase 2 production deployment is automatic.
 
 ## Ubuntu deployment (manual, after review)
 
@@ -26,7 +32,7 @@ chmod 644 secrets/api_token.txt # non-root container must read the bind-mounted 
 docker compose up -d --build
 ```
 
-No automatic deployment is configured. Docker Engine/Compose and NVIDIA Container Toolkit, if GPU monitoring is wanted, must already be installed and approved. The app never changes drivers, CUDA, SSH, Netdata or engine services.
+No automatic deployment is configured. The optional fixture worker is not enabled by base Compose. Docker Engine/Compose and NVIDIA Container Toolkit, if GPU monitoring is wanted, must already be installed and approved. The app never changes drivers, CUDA, SSH, Netdata or engine services.
 
 ## Windows development
 

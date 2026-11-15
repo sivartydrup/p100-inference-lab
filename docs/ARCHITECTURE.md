@@ -39,3 +39,7 @@ SQLite benchmarks: id, created_at, engine, model, tokens_per_second, notes, sour
 See SECURITY.md for the separate authenticated host-agent proposal. Startup cannot alter native engines, Netdata, SSH, CUDA or drivers.
 
 Deployment references: [Docker Compose GPU reservations](https://docs.docker.com/compose/how-tos/gpu-support/) and [NVIDIA utility driver capability](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/docker-specialized.html). These are optional host prerequisites, not installed by this project.
+
+## Phase 2 fixture queue
+
+See [fixture API, schema and worker](PHASE2.md). API startup adds benchmark_jobs, benchmark_samples and benchmark_job_events atomically and advances SQLite user_version from 0 to 1, preserving Phase 1 benchmarks/audit. A newer schema is refused. Fixture results never populate benchmarks. Base deployment adds read-only job/preset endpoints; writes remain opt-in with a distinct secret. The optional worker shares only the local data volume and runs no native engine commands. Exports read job metadata, samples and events in one SQLite snapshot.
