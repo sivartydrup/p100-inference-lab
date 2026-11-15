@@ -191,3 +191,119 @@ test("a viewer token alone cannot enable job mutations in the UI", async ({
     ),
   ).toBe(true);
 });
+
+test("slow details survive list refreshes, time out visibly and recover without overlap", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const held: import("@playwright/test").Route[] = [];
+  let lists = 0;
+  await page.route("**/api/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === `/api/benchmark-jobs/${id}`) {
+      held.push(route);
+      return;
+    }
+    const key = path.split("/").pop()!;
+    if (key === "benchmark-jobs") {
+      lists++;
+      return route.fulfill({ json: { items: [queued] } });
+    }
+    return route.fulfill({ json: fixture[key] });
+  });
+  await page.goto("/");
+  await page.getByLabel("Access token").fill(token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.getByRole("button", { name: "View fixture results" }).click();
+  await expect.poll(() => held.length).toBe(1);
+  await page.clock.runFor(5_000);
+  await expect.poll(() => lists).toBeGreaterThanOrEqual(2);
+  await page.clock.runFor(1_000);
+  expect(held).toHaveLength(1); // A new list array must not replace the 6-second detail request.
+  await held[0].fulfill({ json: detail });
+  await expect(
+    page.getByText("Median synthetic decode:", { exact: false }),
+  ).toContainText("160.00");
+
+  await page.clock.runFor(5_000);
+  await expect.poll(() => held.length).toBe(2);
+  await page.clock.runFor(10_000);
+  await expect(page.getByRole("alert")).toContainText("Request timed out");
+  await expect(page.getByRole("alert")).toContainText("may be stale");
+  await expect(
+    page.getByText("Median synthetic decode:", { exact: false }),
+  ).toBeVisible();
+  expect(held).toHaveLength(2); // Retry starts after settlement, not while another fetch is pending.
+  await page.clock.runFor(5_000);
+  await expect.poll(() => held.length).toBe(3);
+  await held[2].fulfill({
+    json: {
+      ...detail,
+      summary: {
+        sample_count: 1,
+        metrics: { decode_tokens_per_second: { median: 180, stddev: 0 } },
+      },
+    },
+  });
+  await expect(
+    page.getByText("Median synthetic decode:", { exact: false }),
+  ).toContainText("180.00");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("changing selection and disconnecting abort obsolete detail requests and stop retries", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const secondId = "22222222-2222-4222-8222-222222222222";
+  let firstAborted = 0,
+    secondAborted = 0,
+    secondRequests = 0;
+  page.on("requestfailed", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path === `/api/benchmark-jobs/${id}`) firstAborted++;
+    if (path === `/api/benchmark-jobs/${secondId}`) secondAborted++;
+  });
+  await page.route("**/api/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === `/api/benchmark-jobs/${id}`) return;
+    if (path === `/api/benchmark-jobs/${secondId}`) {
+      secondRequests++;
+      if (secondRequests > 1) return;
+      return route.fulfill({ json: { ...detail, id: secondId } });
+    }
+    const key = path.split("/").pop()!;
+    return route.fulfill({
+      json:
+        key === "benchmark-jobs"
+          ? { items: [queued, { ...queued, id: secondId }] }
+          : fixture[key],
+    });
+  });
+  await page.goto("/");
+  await page.getByLabel("Access token").fill(token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page
+    .getByRole("button", { name: "View fixture results" })
+    .nth(0)
+    .click();
+  await expect(
+    page.getByText("Loading job details...", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "View fixture results" })
+    .nth(1)
+    .click();
+  await expect.poll(() => firstAborted).toBe(1);
+  await expect(
+    page.getByText("Median synthetic decode:", { exact: false }),
+  ).toBeVisible();
+  await page.clock.runFor(5_000);
+  await expect.poll(() => secondRequests).toBe(2);
+  await page.getByRole("button", { name: "Disconnect & clear token" }).click();
+  await expect.poll(() => secondAborted).toBe(1);
+  await page.clock.runFor(60_000);
+  expect(secondRequests).toBe(2);
+  await expect(page.getByLabel("Access token")).toHaveValue("");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});

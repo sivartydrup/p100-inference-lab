@@ -4,7 +4,7 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -193,9 +193,18 @@ def test_failure_timeout_and_shutdown_are_terminal(db):
     assert jobs.get_job(db, healthy["id"])["status"] == "succeeded"
 
 
-def test_crash_recovery_preserves_partial_samples_and_queue(db):
-    running, queued = add(db), add(db)
-    jobs.claim_next(db)
+@pytest.mark.parametrize("reverse_ids", [False, True])
+def test_crash_recovery_preserves_partial_samples_and_queue(db, reverse_ids):
+    ids = [UUID("11111111-1111-4111-8111-111111111111"),
+           UUID("22222222-2222-4222-8222-222222222222")]
+    if reverse_ids:
+        ids.reverse()
+    # Force a timestamp tie and both UUID orderings; never assume insertion order.
+    with patch("lab.jobs.timestamp", return_value="2026-11-16T00:00:00+00:00"), \
+            patch("lab.jobs.uuid.uuid4", side_effect=ids):
+        first, second = add(db), add(db)
+    running = jobs.claim_next(db)
+    queued = second if running["id"] == first["id"] else first
     jobs.add_sample(db, running["id"], "measured", 0, fixture_sample(0))
     # Represents a dead worker; recovery is only entered under the OS lock.
     with worker_lock(db):
@@ -203,6 +212,28 @@ def test_crash_recovery_preserves_partial_samples_and_queue(db):
     result = jobs.get_job(db, running["id"])
     assert result["status"] == "interrupted" and len(result["samples"]) == 1
     assert jobs.claim_next(db)["id"] == queued["id"]
+
+
+def test_worker_lock_excludes_different_suffix_alias_to_same_database(db):
+    alias = db.with_name("alias.db")
+    try:
+        alias.symlink_to(db)
+    except OSError:
+        pytest.skip("Symlink creation unavailable on this host")
+    job = add(db)
+    with worker_lock(db):
+        jobs.claim_next(db)
+        with pytest.raises(WorkerBusy):
+            with worker_lock(alias):
+                jobs.recover_interrupted(alias)
+        assert jobs.get_job(db, job["id"])["status"] == "running"
+    # Reverse the alias/canonical order as well.
+    with worker_lock(alias):
+        with pytest.raises(WorkerBusy):
+            with worker_lock(db):
+                pass
+        jobs.recover_interrupted(alias)
+    assert jobs.get_job(db, job["id"])["status"] == "interrupted"
 
 
 def test_os_lock_prevents_second_worker_process(db):

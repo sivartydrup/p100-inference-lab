@@ -112,7 +112,9 @@ export function BenchmarkLab({
     } catch (e) {
       if (controller.signal.aborted)
         throw new Error(
-          "Request timed out or was cancelled. A submission may already be queued; retry uses the same request ID.",
+          privileged && path === "benchmark-jobs" && init.method === "POST"
+            ? "Request timed out or was cancelled. A submission may already be queued; retry uses the same request ID."
+            : "Request timed out or was cancelled.",
         );
       throw e;
     } finally {
@@ -125,22 +127,36 @@ export function BenchmarkLab({
   useEffect(() => {
     if (!selected) return;
     let disposed = false;
-    const controller = new AbortController();
-    // Detail is refreshed with each successful list poll; never keep an old job under a new selection.
+    let timer: ReturnType<typeof window.setTimeout> | undefined;
+    let activeRequest: AbortController | undefined;
+    // Details have their own non-overlapping lifecycle, independent of list polling.
     setDetail(null);
     setDetailError("");
-    void request("benchmark-jobs/" + selected, { signal: controller.signal })
-      .then((value) => {
-        if (!disposed) setDetail(value);
-      })
-      .catch((e) => {
-        if (!disposed) setDetailError((e as Error).message);
-      });
+    const refresh = async () => {
+      const controller = new AbortController();
+      activeRequest = controller;
+      try {
+        const value = await request("benchmark-jobs/" + selected, {
+          signal: controller.signal,
+        });
+        if (!disposed) {
+          setDetail(value);
+          setDetailError("");
+        }
+      } catch (e) {
+        if (!disposed)
+          setDetailError((e as Error).message + " Retrying automatically.");
+      } finally {
+        if (!disposed) timer = window.setTimeout(refresh, 5_000);
+      }
+    };
+    void refresh();
     return () => {
       disposed = true;
-      controller.abort();
+      window.clearTimeout(timer);
+      activeRequest?.abort();
     };
-  }, [selected, jobs, token]);
+  }, [selected, token]);
 
   async function submit() {
     const submission = pending || {
@@ -398,7 +414,9 @@ export function BenchmarkLab({
           </div>
           {detailError && (
             <p className="error" role="alert">
-              {detailError}
+              {detailError}{" "}
+              {detail &&
+                "Showing the last successful details; they may be stale."}
             </p>
           )}
           {!detail && !detailError && <p>Loading job details...</p>}

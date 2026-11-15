@@ -16,7 +16,8 @@ class WorkerBusy(RuntimeError):
 @contextmanager
 def worker_lock(db: Path):
     # Same local filesystem as SQLite. Kernel releases this lock on process death.
-    lock_path = db.resolve().with_suffix(db.suffix + ".worker.lock")
+    canonical_db = db.resolve()
+    lock_path = canonical_db.with_name(canonical_db.name + ".worker.lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with open(lock_path, "a+b") as handle:
         handle.seek(0, 2)

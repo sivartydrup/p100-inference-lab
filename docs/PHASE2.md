@@ -49,6 +49,8 @@ Submission payload (no additional fields accepted):
 
 Presets are fixture-v1 and fixture-failure-v1. Trials: integer 1-20; warmup: integer 0-5; deadline: finite 0.1-60 seconds. Engine/model paths, shell strings, flags, arbitrary URLs and custom prompts are forbidden. Reusing an idempotency key with different settings returns 409. At most 20 queued/running jobs fit in the queue; excess submissions return 429 and Retry-After: 5. UUIDs, numeric bounds and extra fields are validated before insertion. Missing jobs return 404. Disabled or insufficiently authorized writes return 403.
 
+Selected job details refresh independently of the job list, with one bounded request at a time and retries after settlement. Selection changes/disconnect abort obsolete requests. Slow detail responses can complete across list refreshes; detail timeouts retain prior results with a stale warning.
+
 The UI preserves the request ID and settings after a failed/uncertain submission so retry cannot create duplicates. Disconnect/reload clears credentials and retry state; it cannot undo an accepted server request. Check job history before submitting again after a reload. Job tokens are never persisted or exported. JSON downloads use authenticated fetch, not credential-bearing URLs.
 
 ## Worker and lifecycle
@@ -58,7 +60,7 @@ queued -> running -> succeeded | failed | timed_out | cancelled | interrupted
 queued -> cancelled
 ```
 
-One worker holds a nonblocking OS lock next to the canonical database path. The kernel releases it on exit/crash. Only after acquiring it does startup recover orphaned running jobs as interrupted, preserve partial raw samples and continue with queued work. An interrupted job is not silently rerun. A second worker refuses to run; SQLite transactions also enforce one running job when claiming work. No distributed/network-filesystem worker support is implied.
+One worker holds a nonblocking OS lock whose full filename derives from the canonical resolved database path, including when an alias has a different extension. The kernel releases it on exit/crash. Only after acquiring it does startup recover orphaned running jobs as interrupted, preserve partial raw samples and continue with queued work. An interrupted job is not silently rerun. A second worker refuses to run; SQLite transactions also enforce one running job when claiming work. No distributed/network-filesystem worker support is implied.
 
 The fixture worker steps at short fixed intervals, checking cancellation, shutdown and a monotonic deadline before each sample and before success. SIGTERM/SIGINT trigger interruption, and hard kills are recovered at next start. Cancellation and completion serialize in the database; a cancellation committed before final success prevents a successful summary. Partial samples/events remain available for failed/cancelled/timed-out/interrupted jobs, with no successful summary. All terminal states allow subsequent queued work to proceed.
 
