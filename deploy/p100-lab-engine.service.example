@@ -1,0 +1,16 @@
+# Copy to one of p100-lab-kmic.service, p100-lab-pxa.service,
+# p100-lab-qr0n.service in ~/.config/systemd/user/ only after review.
+# Inert template: replace this deliberately nonexistent executable and model.
+[Unit]
+Description=Reviewed native inference engine for P100 Inference Lab
+
+[Service]
+Type=simple
+ExecStart=/REPLACE/WITH/VERIFIED/ENGINE --host 127.0.0.1 --port 8081 --model /REPLACE/WITH/MODEL
+Restart=no
+TimeoutStopSec=30
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=default.target
