@@ -176,6 +176,57 @@ test("sample age expires on returning to a suspended tab", async ({ page }) => {
   );
 });
 
+test("a pre-suspension response cannot make expired telemetry live again", async ({
+  page,
+}) => {
+  await page.clock.install();
+  let systemRequests = 0;
+  let releaseOldResponse: (() => Promise<void>) | undefined;
+  await page.route("**/api/**", async (route) => {
+    const key = route.request().url().split("/").pop()!;
+    if (key === "system") {
+      systemRequests++;
+      if (systemRequests === 2) {
+        releaseOldResponse = () =>
+          route.fulfill({
+            json: { ...(fixture.system as object), cpu_percent: 33 },
+          });
+        return;
+      }
+    }
+    await route.fulfill({
+      json:
+        key === "system" && systemRequests > 2
+          ? { ...(fixture.system as object), cpu_percent: 41 }
+          : fixture[key],
+    });
+  });
+  await page.goto("/");
+  await page.getByLabel("Access token").fill(token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await expect(page.getByText("LIVE HOST DATA", { exact: true })).toBeVisible();
+  await page.clock.runFor(5_000);
+  await expect.poll(() => Boolean(releaseOldResponse)).toBe(true);
+  const suspendedAt = await page.evaluate(() => Date.now());
+  await page.clock.setSystemTime(new Date(suspendedAt + 60_000));
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange")),
+  );
+  await expect(
+    page.getByText("STALE / NO LIVE DATA", { exact: true }),
+  ).toBeVisible();
+  await releaseOldResponse!();
+  await expect(page.getByRole("alert")).toContainText("Refresh timed out");
+  await expect(page.getByText("LIVE HOST DATA", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByText("12%", { exact: true })).toBeVisible();
+  await expect(page.getByText("33%", { exact: true })).toHaveCount(0);
+  await page.clock.runFor(5_000);
+  await expect(page.getByText("LIVE HOST DATA", { exact: true })).toBeVisible();
+  await expect(page.getByText("41%", { exact: true })).toBeVisible();
+});
+
 test("disconnect stops a stalled poll and prevents further retries", async ({
   page,
 }) => {

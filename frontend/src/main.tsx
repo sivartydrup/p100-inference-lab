@@ -74,6 +74,7 @@ function App() {
     const poll = async () => {
       const controller = new AbortController();
       activeRequest = controller;
+      const startedAt = Date.now();
       let timedOut = false;
       // One deadline covers the complete snapshot, including response bodies.
       const deadline = setTimeout(() => {
@@ -87,6 +88,11 @@ function App() {
           api("models", controller.signal),
           api("benchmarks", controller.signal),
         ]);
+        // Suspended tabs can delay timeout callbacks: reject late responses too.
+        if (Date.now() - startedAt >= REQUEST_TIMEOUT_MS) {
+          timedOut = true;
+          throw new Error("Snapshot deadline exceeded");
+        }
         if (!disposed) {
           setData({ system, engines, models, benchmarks });
           const received = Date.now();
