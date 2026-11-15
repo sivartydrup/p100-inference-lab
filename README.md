@@ -1,0 +1,69 @@
+# P100 Inference Lab
+
+An Ubuntu-first, open-source observation and benchmarking foundation for native NVIDIA inference engines. React/TypeScript UI, Python FastAPI API and persistent SQLite history, packaged together in Docker Compose. Production runs wholly on the Ubuntu 24.04 server; Windows is development and browser access only.
+
+## Phase 1
+
+- Authenticated CPU/RAM, database-disk and NVIDIA GPU telemetry; graceful operation without GPUs.
+- Clearly labelled simulated telemetry for Windows development (`LAB_TELEMETRY=mock`). Mock values are never benchmark results.
+- Read-only adapter inventory for Kmic, PXA and qr0n; bounded GGUF/safetensors file inventory.
+- Manual benchmark recording through the authenticated API and history in the dashboard.
+- Non-root container, persistent database volume, optional NVIDIA utility integration, tests and CI.
+
+Engine/model controls are **not implemented**. The reserved control endpoint always returns 403 after authentication. There is no arbitrary command API, shell interpreter, SSH automation, model downloader, driver installer or Docker socket mount. Existing Netdata and native engines remain independent.
+
+## Ubuntu deployment (manual, after review)
+
+See [installation and acceptance checks](docs/INSTALL.md). The intended browser URL is **http://192.168.0.188:3000**. The static UI is public; every `/api/*` operation requires a random bearer token. Plain HTTP does not encrypt that token; use only a trusted isolated LAN, or choose the documented SSH tunnel/HTTPS alternative. Management remains disabled in every topology.
+
+```bash
+# On Ubuntu, after checking prerequisites and reviewing the installation guide:
+mkdir -p secrets
+python3 -c 'import secrets,pathlib; pathlib.Path("secrets/api_token.txt").write_text(secrets.token_urlsafe(48))'
+chmod 700 secrets
+chmod 644 secrets/api_token.txt # non-root container must read the bind-mounted secret
+# Host directory stays private; do not commit this file.
+docker compose up -d --build
+```
+
+No automatic deployment is configured. Docker Engine/Compose and NVIDIA Container Toolkit, if GPU monitoring is wanted, must already be installed and approved. The app never changes drivers, CUDA, SSH, Netdata or engine services.
+
+## Windows development
+
+Python 3.11+ and Node 22.12+ required. In PowerShell:
+
+```powershell
+cd backend
+py -3 -m venv .venv
+.venv\Scripts\python.exe -m pip install -e '.[test]'
+$env:LAB_API_TOKEN = .venv\Scripts\python.exe -c 'import secrets; print(secrets.token_urlsafe(48))'
+$env:LAB_TELEMETRY = 'mock'
+.venv\Scripts\python.exe -m uvicorn lab.main:app --host 127.0.0.1 --port 8000
+```
+
+Keep the generated token private; enter it in the dashboard. In another terminal, `cd frontend`, `npm ci`, `npm run dev`. Open http://127.0.0.1:5173. Vite proxies the API locally. The token stays in tab memory only.
+
+## Checks
+
+```powershell
+backend\.venv\Scripts\python.exe -m pytest -q backend/tests
+cd frontend
+npm ci
+npm run build
+npx playwright install chromium
+npm test
+npm audit --audit-level=high
+cd ..
+docker compose config --quiet
+docker compose -f compose.yaml -f compose.gpu.yaml config --quiet
+docker build -t p100-lab:phase1 .
+backend\.venv\Scripts\python.exe tests/container_smoke.py
+```
+
+CI runs backend tests, browser tests, frontend build/audit and the Linux container smoke test. Real server/GPU acceptance is manual and separate from mock tests.
+
+Read [architecture](docs/ARCHITECTURE.md), [security/control design](SECURITY.md), [roadmap](docs/ROADMAP.md), [dependency licenses](docs/LICENSES.md) and [contributing](CONTRIBUTING.md).
+
+## License
+
+Apache-2.0 for this project. Dependencies, container OS packages, external engines and model weights retain their own licenses. No engines, NVIDIA libraries or models are bundled in the source. Exact engine upstreams and licenses require host verification before integration or redistribution.

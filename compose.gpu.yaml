@@ -1,0 +1,7 @@
+# Explicit NVIDIA runtime supports GPU enumeration after a Docker reload.
+services:
+  lab:
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: utility

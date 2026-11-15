@@ -1,0 +1,27 @@
+# Dependency and licensing review
+
+Reviewed installed package metadata and frontend package-lock.json on 2026-11-15. Project code is Apache-2.0; upstream license notices remain applicable. This is an inventory, not a claim that external engine/model licenses have been cleared.
+
+| Component | Verified version | Declared license |
+|---|---|---|
+| FastAPI | 0.163.0 | MIT |
+| Uvicorn | 0.54.0 | BSD-3-Clause |
+| psutil | 7.2.2 | BSD-3-Clause |
+| Pydantic / pydantic-core | 2.14.3 / 2.50.4 | MIT |
+| Starlette | 1.10.0 | BSD-3-Clause |
+| React / React DOM | 19.3.1 | MIT |
+| Vite | 7.3.8 | MIT |
+| TypeScript | 5.9.3 | Apache-2.0 |
+| Playwright | 1.65.1 | Apache-2.0 |
+| pytest | 9.2.0 | MIT |
+| HTTPX | 0.28.1 | BSD-3-Clause |
+
+Python runtime transitive metadata: annotated-doc, annotated-types, anyio, h11, typing-inspection (MIT); click and idna (BSD-3-Clause); opentelemetry-api (Apache-2.0); typing-extensions (PSF-2.0). Exact Linux runtime versions are recorded in backend/requirements.lock. Frontend transitives declare MIT, ISC or BSD-3-Clause in the inspected installed tree; optional platform packages and versions are recorded in package-lock.json. Recheck upstream notices when updating dependencies or publishing binaries.
+
+Development-only HTTPX brings certifi (MPL-2.0 certificate bundle); preserve its upstream notices and source obligations if redistributing that component. Other inspected test dependencies use MIT/BSD or a dual Apache/BSD license. They do not change the license of this project's original code.
+
+Docker base images contain separately licensed Debian/Linux and Python/Node components, including copyleft OS packages. A published container needs its own complete OS/package notice and source-compliance review; do not relabel the whole image Apache-2.0. Base image tags are mutable; pin reviewed image digests before release. The repository does not publish container images in CI.
+
+Kmic, PXA and qr0n are local engine labels; exact upstream repositories/revisions/licenses remain **unverified**. Their names do not establish a license grant. No engine code, CUDA toolkit, NVIDIA driver libraries or model weights are bundled. NVIDIA runtime libraries may be injected by the administrator's toolkit and retain NVIDIA's separate terms. Model weights, quantizations and datasets also retain their own use/distribution restrictions. Verify provenance before downloads, integration, linking or redistribution.
+
+The full [Apache-2.0 license](https://www.apache.org/licenses/LICENSE-2.0) is in LICENSE. Preserve dependency copyright and license notices in redistributed assets. No engine license constraint has been waived by adopting Apache-2.0 for the dashboard/API.

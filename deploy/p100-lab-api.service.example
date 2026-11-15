@@ -1,0 +1,17 @@
+# ARCHIVED native-service example; not part of Phase 1 Compose deployment.
+# Do not install or enable this template from the web dashboard.
+[Unit]
+Description=P100 Inference Lab management API
+
+[Service]
+Type=simple
+WorkingDirectory=%h/p100-inference-lab/backend
+EnvironmentFile=%h/p100-inference-lab/backend/.env
+ExecStart=%h/p100-inference-lab/backend/.venv/bin/uvicorn lab.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=default.target

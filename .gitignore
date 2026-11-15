@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+.env
+config.local.json
+*.sqlite3*
+*.tsbuildinfo
+test-results/
+playwright-report/
+
+*.tsbuildinfo
+secrets/
+work/
