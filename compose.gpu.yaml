@@ -1,12 +1,7 @@
-# Optional: requires an already configured NVIDIA Container Toolkit.
+# Explicit NVIDIA runtime supports GPU enumeration after a Docker reload.
 services:
   lab:
+    runtime: nvidia
     environment:
+      NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: utility
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]

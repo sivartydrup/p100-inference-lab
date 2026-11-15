@@ -1,4 +1,4 @@
-# Phase 1 verification � 15 November 2026
+# Phase 1 verification ï¿½ 15 November 2026
 
 Existing local source was preserved in the feature branch's first commit before adaptation. The initially empty public repository received only an empty baseline commit on main to permit a PR; application code remains on feat/phase-1-ubuntu-scaffold. Historical pre-implementation notes are preserved separately in LEGACY_HANDOFF.md and do not define current behavior.
 
@@ -33,6 +33,22 @@ The runner completed successfully and includes removal of its test containers/vo
 
 ## Remaining host acceptance
 
-Actual GPU telemetry in Docker, P100 hardware, production target URL, boot persistence and engine integration still require the acceptance procedure in INSTALL.md. No driver or toolkit installation was attempted. The one-shot live telemetry check used a temporary filesystem for its disk sample; production disk telemetry still needs comparison against the actual persistent volume.
+P100 hardware, production target URL, boot persistence and engine integration still require the acceptance procedure in INSTALL.md. The first validation did not install toolkit components; the authorized follow-up below added container tooling only. The one-shot live telemetry check used a temporary filesystem for its disk sample; production disk telemetry still needs comparison against the actual persistent volume.
 
 Container engine status is deliberately unavailable until a separate safe host integration is reviewed. Existing engine upstreams, service names, launch arguments, endpoints and licenses are unverified. Model inventory defaults empty until a narrow read-only directory mount is configured by an administrator. Automated benchmark runs, engine/model operations and tuning are future phases.
+
+## GPU blocker resolved - authorized follow-up
+
+The administrator installed NVIDIA Container Toolkit 1.20.1-1 (four new container-toolkit packages, zero upgrades/removals). Driver 580.178.04, GPU identity and the default Docker runtime were unchanged. The package installation also added NVIDIA CDI discovery services. No driver/CUDA installation, engine launch or app deployment occurred.
+
+The first activation attempt used Docker's `--gpus all` selector and failed despite successful runtime registration by reload. Its rollback restored the preceding daemon configuration. The second attempt registered the optional NVIDIA runtime again, reloaded Docker without restart and selected it directly with `--runtime=nvidia`, NVIDIA_VISIBLE_DEVICES=all and utility-only driver capabilities. This is now the repository's GPU Compose overlay configuration.
+
+Results on Ubuntu:
+
+- GPU query succeeded both directly in a utility container and through the application's live telemetry function running as UID 10001, with read-only root, no capabilities and no-new-privileges.
+- Detected NVIDIA GeForce GTX 950, 2048 MiB total VRAM; observed 32 C, 24.68 W, 0% utilization in the idle sample. These are health readings, not inference performance results.
+- Backend: 27 passed; container smoke passed again, including authentication and persistent SQLite.
+- Before/after checks matched running-container IDs, PIDs, start times, restart counts and running states. GPU UUID and driver version matched. Netdata remained running.
+- Post-run inspection found no temporary smoke containers/volumes or the unique validation image. Downloaded base images/build cache and the private test directory/logs may remain.
+
+GPU telemetry is unblocked for the existing GTX 950. P100/CUDA workload validation remains future host acceptance. The application has not been deployed and the PR has not been merged.

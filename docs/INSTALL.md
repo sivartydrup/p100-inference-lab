@@ -63,3 +63,11 @@ Keep that file private; pass it with `-f compose.yaml -f YOUR_OVERRIDE.yaml` (an
 Stop only this project's container before backing up its named volume with a normal Docker volume backup procedure; this keeps SQLite consistent. Back up the private token/config separately with encryption. Never use `docker compose down -v` on production history. `docker compose down` removes only project containers/network and preserves history; it does not touch Netdata, drivers, models or native engines. Use a tested previous image/commit for rollback. Initial schema uses CREATE TABLE IF NOT EXISTS; schema migrations will be added before evolving stored data.
 
 The files in deploy/ are retained historical native-service examples, not part of Compose and not required or recommended for Phase 1. Do not install the engine example or enable controls from old instructions.
+
+## NVIDIA runtime activation verified on this host
+
+The Ubuntu GTX 950 host was validated with NVIDIA Container Toolkit 1.20.1-1 and the existing driver 580.178.04. Only the four container-toolkit packages were added; the driver and CUDA were not upgraded. The reviewed Docker configuration change registered only runtimes.nvidia and was activated with `systemctl reload docker`, leaving the default runtime and existing containers unchanged.
+
+The GPU overlay uses `runtime: nvidia`, `NVIDIA_VISIBLE_DEVICES=all` and `NVIDIA_DRIVER_CAPABILITIES=utility`. Select the runtime explicitly: on this already-running Docker daemon, registration reloaded successfully but `--gpus all` still failed to select a GPU device driver after toolkit installation. Direct runtime selection passed without a Docker restart. Do not restart Docker or alter native inference software merely to make the alternate GPU selector work. Other hosts still require their own compatibility checks.
+
+This validation queried GPU health only; it did not run CUDA inference or establish P100 compatibility/performance. Keep the installed native engine/CUDA environment independent.
