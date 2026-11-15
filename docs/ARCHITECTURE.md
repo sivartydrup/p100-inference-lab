@@ -30,7 +30,7 @@ Example benchmark payload:
 {"engine":"kmic","model":"example.gguf","tokens_per_second":12.5,"notes":"Manual trial, record hardware/preset details here"}
 ```
 
-Benchmark records are self-reported, not verified measurements. The server adds source=manual and a UTC timestamp. UI shows history; write through an authenticated API client. UI polls every five seconds, displays stale-data warnings on failure and clears token/data on disconnect. In-flight server operations may complete after disconnect.
+Benchmark records are self-reported, not verified measurements. The server adds source=manual and a UTC timestamp. UI shows history; write through an authenticated API client. UI retries five seconds after each completed refresh. A shared 10-second deadline aborts the complete four-endpoint snapshot, including response bodies; failed refreshes cancel outstanding sibling requests. Old readings lose their live label after 15 seconds without a successful snapshot, using browser receipt time rather than the server clock. Returning to a suspended tab immediately rechecks sample age. Failures/timeouts display a stale-data warning, automatic retries recover the live indicator, and disconnect cancels active requests and clears token/data. In-flight server operations may complete after disconnect.
 
 ## Storage and operations
 

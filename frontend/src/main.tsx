@@ -35,14 +35,20 @@ type Snapshot = {
   models: { items: Model[]; warnings: string[]; truncated: boolean };
   benchmarks: { items: Bench[] };
 };
+const POLL_INTERVAL_MS = 5_000;
+const REQUEST_TIMEOUT_MS = 10_000;
+const STALE_AFTER_MS = 15_000;
+
 function App() {
   const [token, setToken] = useState(""),
     [connected, setConnected] = useState(false),
     [data, setData] = useState<Snapshot | null>(null),
-    [error, setError] = useState("");
-  async function api(path: string, init: RequestInit = {}) {
+    [error, setError] = useState(""),
+    [receivedAt, setReceivedAt] = useState<number | null>(null),
+    [now, setNow] = useState(Date.now());
+  async function api(path: string, signal: AbortSignal) {
     const response = await fetch("/api/" + path, {
-      ...init,
+      signal,
       headers: {
         Authorization: "Bearer " + token,
         "Content-Type": "application/json",
@@ -61,30 +67,61 @@ function App() {
     if (!connected) return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
+    let activeRequest: AbortController | undefined;
+    const updateAge = () => setNow(Date.now());
+    const ageTimer = setInterval(updateAge, 1_000);
+    document.addEventListener("visibilitychange", updateAge);
     const poll = async () => {
+      const controller = new AbortController();
+      activeRequest = controller;
+      let timedOut = false;
+      // One deadline covers the complete snapshot, including response bodies.
+      const deadline = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, REQUEST_TIMEOUT_MS);
       try {
         const [system, engines, models, benchmarks] = await Promise.all([
-          api("system"),
-          api("engines"),
-          api("models"),
-          api("benchmarks"),
+          api("system", controller.signal),
+          api("engines", controller.signal),
+          api("models", controller.signal),
+          api("benchmarks", controller.signal),
         ]);
         if (!disposed) {
           setData({ system, engines, models, benchmarks });
+          const received = Date.now();
+          setReceivedAt(received);
+          setNow(received);
           setError("");
         }
       } catch (e) {
-        if (!disposed) setError((e as Error).message);
+        if (!disposed)
+          setError(
+            timedOut
+              ? "Refresh timed out after 10 seconds. Retrying automatically."
+              : (e as Error).message,
+          );
       } finally {
-        if (!disposed) timer = setTimeout(poll, 5000);
+        clearTimeout(deadline);
+        // Cancel sibling requests if one endpoint failed; never overlap polls.
+        controller.abort();
+        if (!disposed) timer = setTimeout(poll, POLL_INTERVAL_MS);
       }
     };
     void poll();
     return () => {
       disposed = true;
       clearTimeout(timer);
+      clearInterval(ageTimer);
+      document.removeEventListener("visibilitychange", updateAge);
+      activeRequest?.abort();
     };
   }, [connected, token]);
+  // Use local receipt time: the server's wall clock may differ from the browser.
+  const stale = Boolean(
+    data &&
+      (error || receivedAt === null || now - receivedAt >= STALE_AFTER_MS),
+  );
   const number = (n: number | null | undefined, suffix = "") =>
     n == null
       ? "Unavailable"
@@ -123,10 +160,12 @@ function App() {
             </p>
           </div>
           <span className="badge">
-            {connected && data && !error
-              ? data.system.mode === "mock"
-                ? "MOCK DEVELOPMENT DATA"
-                : "LIVE HOST DATA"
+            {connected && data
+              ? stale
+                ? "STALE / NO LIVE DATA"
+                : data.system.mode === "mock"
+                  ? "MOCK DEVELOPMENT DATA"
+                  : "LIVE HOST DATA"
               : "DISCONNECTED / NO LIVE DATA"}
           </span>
         </header>
@@ -177,14 +216,15 @@ function App() {
                   setToken("");
                   setData(null);
                   setError("");
+                  setReceivedAt(null);
                 }}
               >
                 Disconnect & clear token
               </button>
             </div>
-            {error && (
+            {(error || stale) && (
               <p role="alert" className="error">
-                {error}{" "}
+                {error || "No fresh sample received in 15 seconds."}{" "}
                 {data && "Showing the last successful sample; data is stale."}
               </p>
             )}

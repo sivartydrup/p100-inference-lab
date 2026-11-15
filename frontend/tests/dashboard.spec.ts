@@ -109,3 +109,95 @@ test("mock samples are clearly labelled", async ({ page }) => {
     page.getByText("MOCK DEVELOPMENT DATA", { exact: true }),
   ).toBeVisible();
 });
+
+test("stalled refresh times out, marks old telemetry stale and recovers", async ({
+  page,
+}) => {
+  await page.clock.install();
+  let systemRequests = 0;
+  let recover = false;
+  await page.route("**/api/**", async (route) => {
+    const key = route.request().url().split("/").pop()!;
+    if (key === "system") {
+      systemRequests++;
+      if (systemRequests > 1 && !recover) return; // Leave the request pending.
+    }
+    await route.fulfill({
+      json:
+        key === "system" && recover
+          ? { ...(fixture.system as object), cpu_percent: 41 }
+          : fixture[key],
+    });
+  });
+  await page.goto("/");
+  await page.getByLabel("Access token").fill(token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await expect(page.getByText("LIVE HOST DATA", { exact: true })).toBeVisible();
+  await page.clock.runFor(5_000);
+  await expect.poll(() => systemRequests).toBe(2);
+  await page.clock.runFor(10_000);
+  await expect(page.getByRole("alert")).toContainText("Refresh timed out");
+  await expect(
+    page.getByText("STALE / NO LIVE DATA", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("LIVE HOST DATA", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByText("12%", { exact: true })).toBeVisible();
+  expect(systemRequests).toBe(2);
+
+  recover = true;
+  await page.clock.runFor(5_000);
+  await expect.poll(() => systemRequests).toBe(3);
+  await expect(page.getByText("LIVE HOST DATA", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByText("41%", { exact: true })).toBeVisible();
+});
+
+test("sample age expires on returning to a suspended tab", async ({ page }) => {
+  await page.clock.install();
+  await page.route("**/api/**", (route) =>
+    route.fulfill({ json: fixture[route.request().url().split("/").pop()!] }),
+  );
+  await page.goto("/");
+  await page.getByLabel("Access token").fill(token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await expect(page.getByText("LIVE HOST DATA", { exact: true })).toBeVisible();
+  // Advance wall time without running timers, as when a tab/device was suspended.
+  await page.clock.setSystemTime(new Date(Date.now() + 60_000));
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange")),
+  );
+  await expect(
+    page.getByText("STALE / NO LIVE DATA", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText(
+    "No fresh sample received",
+  );
+});
+
+test("disconnect stops a stalled poll and prevents further retries", async ({
+  page,
+}) => {
+  await page.clock.install();
+  let systemRequests = 0;
+  await page.route("**/api/**", (route) => {
+    const key = route.request().url().split("/").pop()!;
+    if (key === "system" && ++systemRequests > 1) return;
+    return route.fulfill({ json: fixture[key] });
+  });
+  await page.goto("/");
+  await page.getByLabel("Access token").fill(token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await expect(page.getByText("LIVE HOST DATA", { exact: true })).toBeVisible();
+  await page.clock.runFor(5_000);
+  await expect.poll(() => systemRequests).toBe(2);
+  await page.getByRole("button", { name: "Disconnect & clear token" }).click();
+  await page.clock.runFor(60_000);
+  expect(systemRequests).toBe(2);
+  await expect(page.getByLabel("Access token")).toHaveValue("");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByText("LIVE HOST DATA", { exact: true })).toHaveCount(
+    0,
+  );
+});

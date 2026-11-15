@@ -1,4 +1,4 @@
-# Phase 1 verification ï¿½ 15 November 2026
+# Phase 1 verification - 15 November 2026
 
 Existing local source was preserved in the feature branch's first commit before adaptation. The initially empty public repository received only an empty baseline commit on main to permit a PR; application code remains on feat/phase-1-ubuntu-scaffold. Historical pre-implementation notes are preserved separately in LEGACY_HANDOFF.md and do not define current behavior.
 
@@ -52,3 +52,9 @@ Results on Ubuntu:
 - Post-run inspection found no temporary smoke containers/volumes or the unique validation image. Downloaded base images/build cache and the private test directory/logs may remain.
 
 GPU telemetry is unblocked for the existing GTX 950. P100/CUDA workload validation remains future host acceptance. The application has not been deployed and the PR has not been merged.
+
+## Review finding addressed - stale telemetry
+
+Added a 10-second snapshot deadline with AbortController cancellation, five-second retries after completion/failure, 15-second sample expiry and tab-resume age checks. The UI retains the previous readings visibly marked stale and restores LIVE only after a fresh successful snapshot. Disconnect aborts pending requests and removes polling/age timers.
+
+Production frontend build and all six browser tests pass locally. Added browser-clock regression scenarios for a held request timing out and recovering, sample age expiry after tab suspension, and disconnect during a held request without retries or retained credentials. Existing authentication, mobile layout and mock-labelling tests continue to pass. No server deployment or host changes were performed for this frontend fix.
