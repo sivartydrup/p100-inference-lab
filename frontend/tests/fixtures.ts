@@ -1,5 +1,10 @@
 export const token = "test-token-".repeat(4);
 export const fixture: Record<string, unknown> = {
+  "native-benchmarks": {
+    configured: false,
+    execution_available_via_api: false,
+    items: [],
+  },
   system: {
     mode: "live",
     scope: "Host",

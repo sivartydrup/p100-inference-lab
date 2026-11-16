@@ -20,6 +20,8 @@ Job submission/cancellation are disabled by default. Enabling fixtures requires 
 
 ## Ubuntu deployment (manual, after review)
 
+The next Phase 2 increment adds an optional [host-only native benchmark runner](docs/NATIVE_RUNNER.md) and read-only native history page. Administrator-reviewed Kmic/qr0n presets have artifact hashes, resource checks, bounded systemd user units, cancellation/recovery and a separate database. It ships disabled, exposes no HTTP execution capability, and is not enabled by Compose. Ubuntu/systemd, compatible model and P100 acceptance remain required; PXA remains inventory-only. See [verification](docs/NATIVE_VERIFICATION.md).
+
 See [installation and acceptance checks](docs/INSTALL.md). The intended browser URL is **http://192.168.0.188:3000**. The static UI is public; every `/api/*` operation requires a random bearer token. Plain HTTP does not encrypt that token; use only a trusted isolated LAN, or choose the documented SSH tunnel/HTTPS alternative. Management remains disabled in every topology.
 
 ```bash
