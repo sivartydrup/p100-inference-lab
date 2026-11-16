@@ -239,7 +239,7 @@ function App() {
               </button>
             </div>
             {(error || stale) && (
-              <p role="alert" className="error">
+              <p id="telemetry-warning" role="alert" className="error">
                 {error || "No fresh sample received in 15 seconds."}{" "}
                 {data && "Showing the last successful sample; data is stale."}
               </p>

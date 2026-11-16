@@ -6,7 +6,7 @@ Implementation validation on 2026-11-16. This is a software test record, not Ubu
 
 - Windows Python suite: 100 passed, 8 platform-specific skips. One existing Starlette/HTTPX deprecation warning remains.
 - Linux Python suite in a disposable Docker container with a C compiler: 108 passed, no skips. Tiny compiled ELF programs and dummy GGUF markers replace engines/weights; GPU telemetry is simulated. No NVIDIA devices or native host mounts were granted.
-- Playwright Chromium: 14 passed, including authenticated native history/export, read-only controls and mobile width.
+- Playwright Chromium: all 14 tests passed, including authenticated native history/export, read-only controls and mobile width; three repeated runs also passed (42/42). An initial CI run exposed a broad telemetry-warning selector matching the new panel's independent warning; the assertion is now scoped to telemetry.
 - TypeScript/Vite production build passed; npm audit reported zero vulnerabilities and pip-audit found no known vulnerabilities in the Python runtime lockfile.
 - Production Docker image built locally. Container smoke passed authenticated API/default-disabled native routes, persistence and the existing isolated fixture lifecycle. It launches no native engine.
 - Base, GPU and fixture Compose configurations validate. CI additionally requires a C compiler so Linux ELF tests cannot silently disappear due to a missing compiler.
