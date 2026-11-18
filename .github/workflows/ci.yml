@@ -44,8 +44,14 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
         working-directory: frontend
-      - run: npm audit --audit-level=high
+      - run: npm run audit:security
         working-directory: frontend
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-raw-security-audit
+          path: frontend/audit-report.json
+          if-no-files-found: warn
   container:
     runs-on: ubuntu-24.04
     steps:

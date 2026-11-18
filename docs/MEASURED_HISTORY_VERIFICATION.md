@@ -12,8 +12,10 @@ Validated locally and in disposable Linux containers. No production deployment, 
 
 Snapshot publication uses bounded backup progress and atomic replacement; imports/snapshots preserve unrelated data and never enqueue work. The web/fixture schema is unchanged. Actual production mount/ACL/deployment acceptance remains a later approved step. Import validation is not independent hardware attestation or acceptance of the separate managed systemd runner.
 
-## Outstanding audit failure
+## Proposed time-limited audit acceptance
 
-`npm audit --audit-level=high` fails for existing Vite build dependencies: picomatch plus its fdir/tinyglobby/Vite chain. [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf), updated 17 November 2026, lists picomatch through 4.0.7 and no patched release. The npm registry reports 4.0.7 as the latest release at verification time. This feature adds no dependency and does not change those locked versions.
+Raw npm audit still reports four high findings through existing picomatch/fdir/tinyglobby/Vite build dependencies. [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf) lists picomatch through 4.0.7 and no patched release; the registry latest remains 4.0.7. No dependency version was changed or downgraded.
 
-No audit suppression or forced Vite major downgrade was applied. A separate failing frontend-audit CI job keeps the issue visible while functional frontend checks run. Production contains static assets plus Python, without the Node/Vite build toolchain; development/build exposure still needs review. Do not describe the frontend audit or all CI checks as passing. Merge/deployment should wait for remediation or an explicit reviewed policy decision.
+The proposed security-exception.json expires at 2026-11-25T00:00:00Z. npm run audit:security permits only this exact development-only advisory/version/path chain, preserves the raw findings and independently audits production dependencies at the high-severity threshold. Eight tests cover acceptance scope and rejection of new advisories, production exposure, changed versions/paths, critical escalation, invalid reports, cycles and expiry. CI uploads the unmodified JSON artifact. Local policy checks pass; the production audit reports zero vulnerabilities.
+
+This is explicit risk acceptance proposed for owner review, not an upstream fix or a clean full audit. The PR stays in draft pending review. Production lacks the Node toolchain; development/build exposure remains. Expiry is not automatically renewed; no merge or deployment is automatic.

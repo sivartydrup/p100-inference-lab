@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
-    "test": "playwright test"
+    "test": "playwright test",
+    "audit:security": "node --test scripts/security-audit.test.mjs && node scripts/security-audit.mjs && npm audit --omit=dev --audit-level=high"
   },
   "dependencies": {
     "react": "^19.2.0",
