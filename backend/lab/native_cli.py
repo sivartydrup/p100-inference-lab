@@ -16,6 +16,8 @@ from .native_config import NativeError, load_registry
 from .native_process import SystemdSupervisor
 from .native_runner import NvidiaHardware, serve
 from .worker import WorkerBusy
+from .measured_history import import_run, load_run, publish_snapshot
+from .resident_bundle import prepare_bundle
 
 
 def parser():
@@ -35,13 +37,35 @@ def parser():
     commands.add_parser("list")
     export = commands.add_parser("export")
     export.add_argument("job_id", type=UUID)
+    prepare = commands.add_parser("prepare-import", help="Convert private resident acceptance logs; no execution")
+    prepare.add_argument("--bundle", required=True, type=Path)
+    prepare.add_argument("--engine", required=True, choices=("kmic", "qr0n"))
+    prepare.add_argument("--model-id", required=True)
+    prepare.add_argument("--model-license", required=True)
+    prepare.add_argument("--declared-power-limit", type=float)
+    prepare.add_argument("--output", required=True, type=Path)
+    ingest = commands.add_parser("import", help="Append a validated terminal measurement; never queue work")
+    ingest.add_argument("--file", required=True, type=Path)
+    publish = commands.add_parser("publish", help="Publish a standalone read-only dashboard snapshot")
+    publish.add_argument("--directory", required=True, type=Path)
     return result
 
 
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
-        if args.command == "init":
+        if args.command == "prepare-import":
+            run = prepare_bundle(args.bundle, args.engine, args.model_id, args.model_license, args.declared_power_limit)
+            with args.output.open("x", encoding="utf-8") as stream:
+                os.chmod(args.output, 0o600)
+                stream.write(run.model_dump_json(indent=2))
+            print("Validated resident measurement prepared; no database changed or engine executed.")
+        elif args.command == "import":
+            print(json.dumps(import_run(args.db, load_run(args.file)), indent=2))
+        elif args.command == "publish":
+            publish_snapshot(args.db, args.directory)
+            print("Read-only native history snapshot published; no app configuration or engine changed.")
+        elif args.command == "init":
             store.initialize(args.db)
             print("Dedicated native database initialized; no job submitted or executed.")
         elif args.command == "list":
@@ -70,7 +94,7 @@ def main(argv=None):
                 for signum in (signal.SIGTERM, signal.SIGINT):
                     signal.signal(signum, lambda *_: stop.set())
                 serve(args.db, registry, SystemdSupervisor(), NvidiaHardware(), stop, once=args.once)
-    except (NativeError, OSError, sqlite3.Error, WorkerBusy, ValidationError, ValueError) as error:
+    except (NativeError, OSError, sqlite3.Error, WorkerBusy, ValidationError, ValueError, KeyError, TypeError, IndexError, ZeroDivisionError, RecursionError) as error:
         # No secrets, filesystem paths or process output in command errors.
         code = error.code if isinstance(error, NativeError) else "native_configuration_or_io_error"
         raise SystemExit(code) from None

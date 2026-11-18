@@ -10,3 +10,4 @@
 **/*.sqlite3*
 secrets
 work
+frontend/audit-report.json

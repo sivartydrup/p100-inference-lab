@@ -21,3 +21,7 @@ Native tests cover opt-in/strict presets, changed artifact hashes/modes, separat
 4. Verify any deliberate read-only native database mount/ACL and concurrent SQLite reads, backup/restore and operational GPU reservation. No such mount, service or production overlay is enabled by this PR.
 
 Only then collect actual native performance. TTFT, correctness, peak VRAM and energy remain outside this microbenchmark protocol. Do not attribute synthetic test timing or fixture throughput to the installed hardware.
+
+## Imported resident history (0.4)
+
+External resident-model acceptance logs can now be validated and imported as terminal history; see MEASURED_HISTORY.md. Hardware/model readiness for those external measurements is recorded in their private evidence, and the history UI distinguishes it from managed CLI trials. These imports do not validate this worker’s actual systemd policy gate or authorize its execution. The original 0.3 test record above remains a record of that implementation stage. The new optional overlay mounts only a published read-only snapshot and is not enabled by default.

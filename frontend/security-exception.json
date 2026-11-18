@@ -1,0 +1,13 @@
+{
+  "advisory_url": "https://github.com/advisories/GHSA-fc5q-39xc-vjpf",
+  "created_utc": "2026-11-18T00:00:00Z",
+  "expires_utc": "2026-11-25T00:00:00Z",
+  "scope": "Development/build dependencies only; compiled production image contains no Node toolchain and accepts no glob patterns.",
+  "reason": "No patched picomatch release is available. Temporary acceptance proposed for PR review; preserve raw findings and fail on any changed exposure.",
+  "versions": {
+    "picomatch": "4.0.7",
+    "fdir": "6.5.0",
+    "tinyglobby": "0.2.17",
+    "vite": "7.3.8"
+  }
+}

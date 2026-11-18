@@ -1,0 +1,12 @@
+# Opt-in only: publish an operator-approved snapshot before using this overlay.
+services:
+  lab:
+    environment:
+      LAB_NATIVE_DB: /native-history/native.sqlite3
+    volumes:
+      - type: bind
+        source: ${LAB_NATIVE_HISTORY_DIR:?Set LAB_NATIVE_HISTORY_DIR to the published snapshot directory}
+        target: /native-history
+        read_only: true
+        bind:
+          create_host_path: false
