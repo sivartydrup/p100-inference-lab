@@ -1,26 +1,57 @@
 import { useEffect, useRef, useState } from "react";
+import { MeasuredComparison, MeasuredDetails } from "./MeasuredHistory";
 
-type NativeJob = {
+export type NativeJob = {
   id: string;
   status: string;
   created_at: string;
   source: "native";
   error_code: string | null;
   preset_id: string;
-  provenance: { engine: string; model_id: string };
+  provenance: {
+    engine: string;
+    model_id: string;
+    record_origin?: string;
+    comparison_key?: string;
+    observed_seconds?: number;
+    target_seconds?: number;
+    declared_power_limit_w?: number | null;
+    power_limit_evidence?: string;
+    gpu_name?: string;
+    driver_version?: string;
+    workload?: {
+      prompt_tokens: number;
+      output_tokens: number;
+      context: number;
+    };
+  };
   summary: null | {
     sample_count: number;
     metrics: Record<string, { median: number }>;
+    partial?: boolean;
+    telemetry?: {
+      peak_temperature_c: number;
+      mean_power_w: number;
+      peak_power_w: number;
+      sampled_peak_vram_mib: number;
+      measured_samples: number;
+    };
   };
 };
-type NativeDetail = NativeJob & {
+export type NativeDetail = NativeJob & {
   attempts: {
     phase: string;
     trial: number;
     sample: null | {
-      prefill_tokens_per_second: number;
-      decode_tokens_per_second: number;
-      process_wall_ms: number;
+      prefill_tokens_per_second?: number;
+      decode_tokens_per_second?: number;
+      process_wall_ms?: number;
+      first_text_ms?: number;
+      request_wall_ms?: number;
+      timestamp?: string;
+      temperature_c?: number;
+      power_w?: number;
+      elapsed_measured_seconds?: number | null;
     };
   }[];
 };
@@ -173,6 +204,7 @@ export function NativeBenchmarks({ token }: { token: string }) {
       )}
       {list.data?.configured && (
         <>
+          <MeasuredComparison jobs={list.data.items} />
           <div className="table-wrap">
             <table>
               <thead>
@@ -189,6 +221,11 @@ export function NativeBenchmarks({ token }: { token: string }) {
                     <td>{new Date(j.created_at).toLocaleString()}</td>
                     <td>
                       {j.provenance.engine} / {j.provenance.model_id}
+                      <p>
+                        {j.provenance.record_origin === "operator_import"
+                          ? "Imported measurement"
+                          : "Native runner"}
+                      </p>
                     </td>
                     <td>
                       {j.status}
@@ -236,57 +273,64 @@ export function NativeBenchmarks({ token }: { token: string }) {
           {!detail.data && !detail.error && <p>Loading native details...</p>}
           {detail.data && (
             <>
-              <p>
-                {detail.data.status}. CLI token microbenchmark; TTFT, answer
-                quality and peak VRAM are not measured.
-              </p>
-              {detail.data.summary && (
-                <p>
-                  Median prefill:{" "}
-                  {detail.data.summary.metrics.prefill_tokens_per_second.median.toFixed(
-                    2,
-                  )}{" "}
-                  tokens/sec. Median decode:{" "}
-                  {detail.data.summary.metrics.decode_tokens_per_second.median.toFixed(
-                    2,
-                  )}{" "}
-                  tokens/sec. {detail.data.summary.sample_count} measured
-                  trials, warmup excluded.
-                </p>
+              {detail.data.provenance.record_origin === "operator_import" ? (
+                <MeasuredDetails job={detail.data} />
+              ) : (
+                <>
+                  <p>
+                    {detail.data.status}. CLI token microbenchmark; TTFT, answer
+                    quality and peak VRAM are not measured.
+                  </p>
+                  {detail.data.summary && (
+                    <p>
+                      Median prefill:{" "}
+                      {detail.data.summary.metrics.prefill_tokens_per_second.median.toFixed(
+                        2,
+                      )}{" "}
+                      tokens/sec. Median decode:{" "}
+                      {detail.data.summary.metrics.decode_tokens_per_second.median.toFixed(
+                        2,
+                      )}{" "}
+                      tokens/sec. {detail.data.summary.sample_count} measured
+                      trials, warmup excluded.
+                    </p>
+                  )}
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Phase / trial</th>
+                          <th>Prefill tokens/sec</th>
+                          <th>Decode tokens/sec</th>
+                          <th>Process wall ms</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.data.attempts.map((a) => (
+                          <tr key={a.phase + a.trial}>
+                            <td>
+                              {a.phase} / {a.trial + 1}
+                            </td>
+                            <td>
+                              {a.sample?.prefill_tokens_per_second?.toFixed(
+                                2,
+                              ) || "Not completed"}
+                            </td>
+                            <td>
+                              {a.sample?.decode_tokens_per_second?.toFixed(2) ||
+                                "Not completed"}
+                            </td>
+                            <td>
+                              {a.sample?.process_wall_ms?.toFixed(2) ||
+                                "Not completed"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Phase / trial</th>
-                      <th>Prefill tokens/sec</th>
-                      <th>Decode tokens/sec</th>
-                      <th>Process wall ms</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detail.data.attempts.map((a) => (
-                      <tr key={a.phase + a.trial}>
-                        <td>
-                          {a.phase} / {a.trial + 1}
-                        </td>
-                        <td>
-                          {a.sample?.prefill_tokens_per_second.toFixed(2) ||
-                            "Not completed"}
-                        </td>
-                        <td>
-                          {a.sample?.decode_tokens_per_second.toFixed(2) ||
-                            "Not completed"}
-                        </td>
-                        <td>
-                          {a.sample?.process_wall_ms.toFixed(2) ||
-                            "Not completed"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
             </>
           )}
         </article>

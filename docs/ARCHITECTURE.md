@@ -1,5 +1,7 @@
 # Architecture and API
 
+Measured resident history is described in [MEASURED_HISTORY.md](MEASURED_HISTORY.md). A local converter crosschecks the fixed archived files, validates a versioned normalized document and recomputes aggregates. Import appends only terminal rows to the separate native database; synthetic import IDs are never executable systemd units. No web/fixture schema migration or HTTP write route is added. A backup/publish command atomically replaces a standalone native snapshot mounted read-only by the optional history overlay. The existing authenticated GET/detail/export API serves imported request, warmup and telemetry evidence. Comparison groups share exact model/workload/prompt hashes and GPU/driver, with cap evidence and partial windows shown explicitly. No host execution privilege is added to the container.
+
 The optional [native runner](NATIVE_RUNNER.md) adds a separate host-only CLI and read-only native history. Base production topology below remains unchanged.
 
 Windows browser → Ubuntu port 3000 → a non-root container containing compiled React/TypeScript assets and FastAPI → host read-only CPU/RAM/NVIDIA telemetry, read-only configured model mounts and a persistent SQLite volume. Docker builds the frontend on Ubuntu; Node is not needed on the production host after image build. Windows has no production role beyond the browser.

@@ -1,5 +1,7 @@
 # Dependency and licensing review
 
+The measured-history feature adds no runtime dependencies and bundles no private measurement archives, model weights or native engines. Existing dependencies retain their licenses. A newly reported unpatched picomatch build-tool vulnerability is tracked in MEASURED_HISTORY.md; this is a security status change rather than a license change.
+
 Reviewed installed package metadata and frontend package-lock.json on 2026-11-15. Project code is Apache-2.0; upstream license notices remain applicable. This is an inventory, not a claim that external engine/model licenses have been cleared.
 
 | Component | Verified version | Declared license |

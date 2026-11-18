@@ -1,5 +1,7 @@
 # Benchmark and tuning roadmap
 
+Version 0.4 adds a local resident-log import protocol, immutable terminal history, read-only snapshot publication/overlay and measured comparison UI. It preserves partial thermal-cutoff results and distinguishes logged from declared power caps. This provides history for external resident acceptance runs; it does not complete native systemd execution acceptance, enable browser controls or constitute a production deployment. See [MEASURED_HISTORY.md](MEASURED_HISTORY.md).
+
 ## Phase 1 — current foundation
 
 Unified observation, explicit service status, read-only inventory, manual benchmark records and disabled reserved control endpoints. Simulated telemetry is explicitly labelled; no synthetic benchmark results or implied P100 performance claims. Host verification is required before operating real engines.

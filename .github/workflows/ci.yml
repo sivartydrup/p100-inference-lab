@@ -29,11 +29,22 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
-      - run: npm audit --audit-level=high
-        working-directory: frontend
       - run: npx playwright install --with-deps chromium
         working-directory: frontend
       - run: npm test
+        working-directory: frontend
+  frontend-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm audit --audit-level=high
         working-directory: frontend
   container:
     runs-on: ubuntu-24.04
@@ -42,5 +53,7 @@ jobs:
       - run: docker compose config --quiet
       - run: docker compose -f compose.yaml -f compose.gpu.yaml config --quiet
       - run: docker compose -f compose.yaml -f compose.fixtures.yaml --profile fixtures config --quiet
+      - run: LAB_NATIVE_HISTORY_DIR=/tmp/reviewed-history docker compose -f compose.yaml -f compose.history.yaml config --quiet
       - run: docker build -t p100-lab:phase1 .
       - run: python3 tests/container_smoke.py
+      - run: python3 tests/native_history_smoke.py

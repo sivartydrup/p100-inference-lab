@@ -74,7 +74,7 @@ def create_app(config=None):
             """)
         yield
 
-    app = FastAPI(title="P100 Inference Lab", version="0.3.0", lifespan=lifespan,
+    app = FastAPI(title="P100 Inference Lab", version="0.4.0", lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.middleware("http")
