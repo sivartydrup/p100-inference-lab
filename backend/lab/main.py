@@ -17,6 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from .adapters import ENGINE_IDS, NativeAdapter, inventory
 from .telemetry import sample
 from . import jobs
+from . import native_store
+from .native_config import NativeError
 
 
 class Benchmark(BaseModel):
@@ -47,6 +49,7 @@ def create_app(config=None):
         raise ValueError("LAB_TELEMETRY must be mock or live")
     db = Path(config.get("db", os.getenv("LAB_DB", "data/lab.sqlite3")))
     roots = config.get("roots", json.loads(os.getenv("LAB_MODEL_ROOTS", "[]")))
+    native_db = config.get("native_db", os.getenv("LAB_NATIVE_DB"))
     if not isinstance(roots, list) or not all(isinstance(x, str) for x in roots):
         raise ValueError("LAB_MODEL_ROOTS must be a JSON array of absolute paths")
 
@@ -71,7 +74,7 @@ def create_app(config=None):
             """)
         yield
 
-    app = FastAPI(title="P100 Inference Lab", version="0.2.0", lifespan=lifespan,
+    app = FastAPI(title="P100 Inference Lab", version="0.3.0", lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.middleware("http")
@@ -172,6 +175,36 @@ def create_app(config=None):
         if job is None:
             raise HTTPException(404, "Benchmark job not found")
         return job
+
+    @app.get("/api/native-benchmarks", dependencies=auth)
+    def native_benchmarks(limit: int = Query(default=50, ge=1, le=100)):
+        try:
+            return {"configured": bool(native_db), "execution_available_via_api": False,
+                    "items": native_store.list_jobs(native_db, limit) if native_db else []}
+        except (OSError, sqlite3.Error, NativeError):
+            raise HTTPException(503, "Native history is not available; no database was created or changed")
+
+    @app.get("/api/native-benchmarks/{job_id}", dependencies=auth)
+    def native_detail(job_id: UUID):
+        if not native_db:
+            raise HTTPException(404, "Native history is not configured")
+        try:
+            job = native_store.get_job(native_db, str(job_id))
+        except (OSError, sqlite3.Error, NativeError):
+            raise HTTPException(503, "Native history is unavailable")
+        if job is None:
+            raise HTTPException(404, "Native benchmark not found")
+        return job
+
+    @app.get("/api/native-benchmarks/{job_id}/export", dependencies=auth)
+    def native_export(job_id: UUID):
+        return JSONResponse(native_detail(job_id), headers={
+            "Content-Disposition": f'attachment; filename="native-benchmark-{job_id}.json"'})
+
+    @app.post("/api/native-benchmarks", dependencies=auth)
+    @app.post("/api/native-benchmarks/{job_id}/cancel", dependencies=auth)
+    def native_mutations_disabled():
+        raise HTTPException(403, "Native job submission/cancellation are host-administrator CLI operations only")
 
     static = Path(config.get("static", os.getenv("LAB_STATIC_DIR", "../frontend/dist")))
     if static.is_dir():

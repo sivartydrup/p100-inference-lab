@@ -74,10 +74,12 @@ def main():
         status, headers, body = request("/", authenticated=False)
         assert status == 200 and b"<html" in body
         assert headers["X-Frame-Options"] == "DENY"
-        for path in ("system", "engines", "models", "benchmarks", "benchmark-presets", "benchmark-jobs"):
+        for path in ("system", "engines", "models", "benchmarks", "benchmark-presets", "benchmark-jobs", "native-benchmarks"):
             assert request("/api/" + path, authenticated=False)[0] == 401
         assert json.loads(request("/api/system")[2])["mode"] == "mock"
         assert request("/api/engines/kmic/control", {"action": "start"})[0] == 403
+        assert json.loads(request("/api/native-benchmarks")[2])["configured"] is False
+        assert request("/api/native-benchmarks", {"preset": "anything"})[0] == 403
         assert request("/api/benchmarks", {"engine": "kmic", "model": "smoke.gguf", "tokens_per_second": 1})[0] == 201
         docker("rm", "-f", name)
         url = start()

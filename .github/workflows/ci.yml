@@ -11,6 +11,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -c backend/requirements.lock -e './backend[test]'
+      - run: cc --version
       - run: python -m pytest -q
         working-directory: backend
       - run: pip install pip-audit

@@ -49,7 +49,7 @@ test("authentication failure is visible and mobile layout fits", async ({
   await page.goto("/");
   await page.getByLabel("Access token").fill(token);
   await page.getByRole("button", { name: "Connect" }).click();
-  await expect(page.getByRole("alert")).toContainText("Authentication failed");
+  await expect(page.locator("#telemetry-warning")).toContainText("Authentication failed");
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -100,7 +100,7 @@ test("stalled refresh times out, marks old telemetry stale and recovers", async 
   await page.clock.runFor(5_000);
   await expect.poll(() => systemRequests).toBe(2);
   await page.clock.runFor(10_000);
-  await expect(page.getByRole("alert")).toContainText("Refresh timed out");
+  await expect(page.locator("#telemetry-warning")).toContainText("Refresh timed out");
   await expect(
     page.getByText("STALE / NO LIVE DATA", { exact: true }),
   ).toBeVisible();
@@ -114,7 +114,7 @@ test("stalled refresh times out, marks old telemetry stale and recovers", async 
   await page.clock.runFor(5_000);
   await expect.poll(() => systemRequests).toBe(3);
   await expect(page.getByText("LIVE HOST DATA", { exact: true })).toBeVisible();
-  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator("#telemetry-warning")).toHaveCount(0);
   await expect(page.getByText("41%", { exact: true })).toBeVisible();
 });
 
@@ -135,7 +135,7 @@ test("sample age expires on returning to a suspended tab", async ({ page }) => {
   await expect(
     page.getByText("STALE / NO LIVE DATA", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("alert")).toContainText(
+  await expect(page.locator("#telemetry-warning")).toContainText(
     "No fresh sample received",
   );
 });
@@ -180,7 +180,7 @@ test("a pre-suspension response cannot make expired telemetry live again", async
     page.getByText("STALE / NO LIVE DATA", { exact: true }),
   ).toBeVisible();
   await releaseOldResponse!();
-  await expect(page.getByRole("alert")).toContainText("Refresh timed out");
+  await expect(page.locator("#telemetry-warning")).toContainText("Refresh timed out");
   await expect(page.getByText("LIVE HOST DATA", { exact: true })).toHaveCount(
     0,
   );
@@ -211,7 +211,7 @@ test("disconnect stops a stalled poll and prevents further retries", async ({
   await page.clock.runFor(60_000);
   expect(systemRequests).toBe(2);
   await expect(page.getByLabel("Access token")).toHaveValue("");
-  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator("#telemetry-warning")).toHaveCount(0);
   await expect(page.getByText("LIVE HOST DATA", { exact: true })).toHaveCount(
     0,
   );

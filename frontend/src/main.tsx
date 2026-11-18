@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import { BenchmarkLab, type Job, type Presets } from "./BenchmarkLab";
+import { NativeBenchmarks } from "./NativeBenchmarks";
 type GPU = {
   index: string;
   name: string;
@@ -152,6 +153,7 @@ function App() {
           <a href="#models">Model library</a>
           <a href="#history">Benchmark history</a>
           <a href="#fixture-lab">Fixture lab</a>
+          <a href="#native-benchmarks">Native history</a>
         </nav>
         <div className="aside-note">
           Native Ubuntu engines
@@ -237,7 +239,7 @@ function App() {
               </button>
             </div>
             {(error || stale) && (
-              <p role="alert" className="error">
+              <p id="telemetry-warning" role="alert" className="error">
                 {error || "No fresh sample received in 15 seconds."}{" "}
                 {data && "Showing the last successful sample; data is stale."}
               </p>
@@ -427,6 +429,7 @@ function App() {
                     </p>
                   )}
                 </section>
+                <NativeBenchmarks token={token} />
                 <BenchmarkLab
                   token={token}
                   jobs={data.jobs.items}

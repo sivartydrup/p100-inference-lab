@@ -29,3 +29,5 @@ The full [Apache-2.0 license](https://www.apache.org/licenses/LICENSE-2.0) is in
 ## Observed native-engine licensing (planning only)
 
 Read-only host inspection identified Kmic-68/llama.cpp at bbad6fcfb and qr0n/p100-llama-cpp at dc5c644 with MIT root licenses. PXA source at 09c9dc3 has an MIT root license; the installed v4.0.4 bundle claims a different source revision (76a9eb9), not present in the local checkout. Its libggml-pxqn.so is explicitly excluded from the MIT grant and has separate restrictions on modification, paid redistribution and license/model-check circumvention. The lab neither bundles nor links these components. Keep the PXQN binary outside the Apache-2.0 distribution and any open-source engine fork unless separate rights are obtained. Bundled NVIDIA libraries/model weights require their own checks. This observation is not a clearance of complete bundle redistribution. Phase 2 fixtures introduce no new third-party runtime dependencies.
+
+The optional native runner adds no third-party runtime dependencies and bundles no engines, weights or GPU libraries. PXA remains excluded from execution support pending protocol and license review.

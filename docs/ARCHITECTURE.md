@@ -1,5 +1,7 @@
 # Architecture and API
 
+The optional [native runner](NATIVE_RUNNER.md) adds a separate host-only CLI and read-only native history. Base production topology below remains unchanged.
+
 Windows browser → Ubuntu port 3000 → a non-root container containing compiled React/TypeScript assets and FastAPI → host read-only CPU/RAM/NVIDIA telemetry, read-only configured model mounts and a persistent SQLite volume. Docker builds the frontend on Ubuntu; Node is not needed on the production host after image build. Windows has no production role beyond the browser.
 
 ## Telemetry and engine adapters
@@ -41,5 +43,9 @@ See SECURITY.md for the separate authenticated host-agent proposal. Startup cann
 Deployment references: [Docker Compose GPU reservations](https://docs.docker.com/compose/how-tos/gpu-support/) and [NVIDIA utility driver capability](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/docker-specialized.html). These are optional host prerequisites, not installed by this project.
 
 ## Phase 2 fixture queue
+
+Native history is independent of this fixture queue. Its dedicated SQLite database has a separate application ID/schema; the API optionally opens `LAB_NATIVE_DB` read-only and never creates or migrates it. Authenticated `GET /api/native-benchmarks?limit=50` (1–100), `GET /api/native-benchmarks/{UUID}` and `GET /api/native-benchmarks/{UUID}/export` expose history. Native submission and cancellation POST routes always return 403. The UI polls independently with deadlines, stale indicators and authenticated export. Base Compose has no native database mount, host service bus or native worker.
+
+The administrator CLI validates private presets and artifact hashes, fixes argv/environment, checks resources, persists intent and starts one uniquely named bounded systemd user unit per trial. A private gate checks actual unit policy before native exec. Per-user and per-database locks exclude cooperating workers; unconfirmed cleanup blocks new claims. Recovery stops recorded units and marks interrupted work without replay. No automatic service installation is supplied. The guide documents trusted filesystem/dependency assumptions, GPU reservation requirements and measurement limitations.
 
 See [fixture API, schema and worker](PHASE2.md). API startup adds benchmark_jobs, benchmark_samples and benchmark_job_events atomically and advances SQLite user_version from 0 to 1, preserving Phase 1 benchmarks/audit. A newer schema is refused. Fixture results never populate benchmarks. Base deployment adds read-only job/preset endpoints; writes remain opt-in with a distinct secret. The optional worker shares only the local data volume and runs no native engine commands. Exports read job metadata, samples and events in one SQLite snapshot.
