@@ -83,7 +83,7 @@ function MeasuredSessions({ jobs }: { jobs: NativeJob[] }) {
               </p>
             )}
             <div className="table-wrap">
-              <table>
+                <table className="session-table">
                 <thead>
                   <tr>
                     <th>GPU UUID</th>

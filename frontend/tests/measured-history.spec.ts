@@ -228,6 +228,8 @@ test("GPU sessions distinguish paired windows, incomplete history and incompatib
     panel.getByRole("cell", { name: gpu, exact: true }),
   ).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
+  const gpuCell = await panel.getByRole("cell", { name: gpu, exact: true }).boundingBox();
+  expect(gpuCell!.height).toBeLessThan(160);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
