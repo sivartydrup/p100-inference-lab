@@ -244,6 +244,12 @@ code {
 .table-wrap {
   overflow: auto;
 }
+.session-table {
+  min-width: 960px;
+}
+.session-table td:first-child {
+  min-width: 200px;
+}
 table {
   width: 100%;
   border-collapse: collapse;

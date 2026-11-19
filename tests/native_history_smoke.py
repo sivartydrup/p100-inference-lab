@@ -37,8 +37,10 @@ with tempfile.TemporaryDirectory() as d:
  import_run(p,run); import_run(p,run)
  publish_snapshot(p,Path('/data'))
 """
+    value = measurement()
+    value["test_context"] = {"session_id": None, "gpu_uuids": [value["gpu_uuid"]], "enclosure": "closed"}
     docker("run", "--rm", "-i", "--network", "none", "--mount", f"type=volume,src={history},dst=/data",
-           "--entrypoint", "python", IMAGE, "-c", setup, input=json.dumps(measurement()))
+           "--entrypoint", "python", IMAGE, "-c", setup, input=json.dumps(value))
     docker("run", "-d", "--name", api, "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
            "--tmpfs", "/tmp:size=16m", "--mount", f"type=volume,src={web},dst=/data",
            "--mount", f"type=volume,src={history},dst=/native-history,readonly",
@@ -74,6 +76,7 @@ with tempfile.TemporaryDirectory() as d:
     assert code == 200 and listed["execution_available_via_api"] is False and len(listed["items"]) == 1
     job = listed["items"][0]
     assert job["provenance"]["record_origin"] == "operator_import"
+    assert job["provenance"]["test_context"] == value["test_context"]
     code, exported = request("/api/native-benchmarks/" + job["id"] + "/export")
     assert code == 200 and len(exported["attempts"]) == 5
     assert exported["summary"]["metrics"]["decode_tokens_per_second"]["median"] == 191.25
