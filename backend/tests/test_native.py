@@ -267,20 +267,25 @@ def test_preflight_rejects_busy_wrong_hot_or_exhausted_gpu(db, preset, monkeypat
 
 def test_systemd_command_and_resource_attestation_are_fixed(preset):
     supervisor = object.__new__(SystemdSupervisor)
+    supervisor.namespace_reference = lambda: {"user": "user:[1]", "mnt": "mnt:[2]"}
     unit = unit_name(str(uuid4()), "measured", 0)
     argv = supervisor.command(preset, unit, 5, Path("/run/user/1000/private/approved"))
     assert "--expand-environment=no" in argv and "--property=KillMode=control-group" in argv
     assert "--property=RuntimeMaxSec=5.000" in argv and "--property=RestrictAddressFamilies=AF_UNIX" in argv
     assert "--environment" in argv and "-i" in argv
+    assert "--property=PrivateUsers=yes" in argv
     assert argv[-len(preset.argv()):] == preset.argv()
     with pytest.raises(NativeError): supervisor.command(preset, "ssh.service", 5, Path("/tmp/gate"))
     values = {"LoadState": "loaded", "ActiveState": "active", "KillMode": "control-group",
-              "SendSIGKILL": "yes", "NoNewPrivileges": "yes", "PrivateTmp": "yes",
+              "SendSIGKILL": "yes", "NoNewPrivileges": "yes", "PrivateUsers": "yes", "PrivateTmp": "yes",
               "ProtectSystem": "strict", "ProtectHome": "read-only", "RestrictAddressFamilies": "AF_UNIX",
               "MemoryMax": str(preset.memory_max_mib * 2**20), "TasksMax": "64", "RuntimeMaxUSec": "5s",
               "CPUQuotaPerSecUSec": "1s"}
     supervisor.control = lambda *_: Captured(0, "\n".join(k+"="+v for k,v in values.items()).encode(), b"", 1)
     assert supervisor.attest(unit, preset, 5)
+    values["PrivateUsers"] = "no"
+    with pytest.raises(NativeError, match="unit_policy_not_confirmed"): supervisor.attest(unit, preset, 5)
+    values["PrivateUsers"] = "yes"
     values["KillMode"] = "process"
     with pytest.raises(NativeError, match="unit_policy_not_confirmed"): supervisor.attest(unit, preset, 5)
     assert duration_seconds("1min 500ms") == 60.5
@@ -308,6 +313,7 @@ def test_native_api_is_read_only_authenticated_and_does_not_create_files(tmp_pat
 def test_start_gate_is_released_only_after_policy_confirmation(tmp_path, preset, monkeypatch):
     supervisor = object.__new__(SystemdSupervisor)
     supervisor.env = {"XDG_RUNTIME_DIR": str(tmp_path)}
+    supervisor.namespace_reference = lambda: {"user": "user:[1]", "mnt": "mnt:[2]"}
     attestations = iter([False, True])
     supervisor.attest = lambda *_: next(attestations)
     def transport(argv, env, deadline, check):
@@ -343,6 +349,7 @@ def test_cleanup_requires_a_confirmed_inactive_unit():
 @pytest.mark.parametrize("behavior", ["policy_error", "never_active"])
 def test_unconfirmed_policy_never_opens_start_gate(tmp_path, preset, monkeypatch, behavior):
     supervisor = object.__new__(SystemdSupervisor)
+    supervisor.namespace_reference = lambda: {"user": "user:[1]", "mnt": "mnt:[2]"}
     supervisor.env = {"XDG_RUNTIME_DIR": str(tmp_path)}
     def attest(*_):
         if behavior == "policy_error":

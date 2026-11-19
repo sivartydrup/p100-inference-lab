@@ -3,8 +3,44 @@ import argparse
 import json
 import os
 import select
+import socket
+import errno
+import re
 import time
 from pathlib import Path
+
+
+def confirm_isolation(command, environment, reference):
+    """Check effective kernel state inside the unit, not just systemd properties."""
+    try:
+        if not isinstance(reference, dict) or set(reference) != {"user", "mnt"}:
+            raise ValueError("Missing namespace reference")
+        for namespace in ("user", "mnt"):
+            own = os.readlink(f"/proc/self/ns/{namespace}")
+            parent = reference[namespace]
+            if not isinstance(parent, str) or not re.fullmatch(namespace + r":\[[0-9]+\]", parent):
+                raise ValueError("Invalid namespace reference")
+            if own == parent:
+                raise ValueError("Shared namespace")
+        status = dict(line.split(":", 1) for line in Path('/proc/self/status').read_text().splitlines() if ":" in line)
+        if status.get('NoNewPrivs', '').strip() != '1' or status.get('Seccomp', '').strip() != '2':
+            raise ValueError("Missing effective process restrictions")
+        paths = [command[0], *environment['LD_LIBRARY_PATH'].split(':')]
+        if '-m' in command:
+            paths.append(command[command.index('-m') + 1])
+        if not paths or any(not path or not os.statvfs(path).f_flag & os.ST_RDONLY for path in paths):
+            raise ValueError("Native artifacts are not read-only")
+        for family in (socket.AF_INET, socket.AF_INET6):
+            try:
+                connection = socket.socket(family, socket.SOCK_STREAM)
+            except OSError as error:
+                if error.errno not in (errno.EPERM, errno.EACCES, errno.EAFNOSUPPORT):
+                    raise
+            else:
+                connection.close()
+                raise ValueError("INET socket was permitted")
+    except (OSError, ValueError, KeyError, IndexError):
+        raise SystemExit("Native isolation not confirmed") from None
 
 
 def main():
@@ -12,6 +48,7 @@ def main():
     parser.add_argument("--gate", required=True)
     parser.add_argument("--worker-pid", required=True, type=int)
     parser.add_argument("--environment", required=True)
+    parser.add_argument("--namespace-reference", required=True)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if os.name != "posix" or not hasattr(os, "pidfd_open"):
@@ -39,6 +76,7 @@ def main():
             except FileNotFoundError:
                 approved = False
             if approved:
+                confirm_isolation(command, environment, json.loads(args.namespace_reference))
                 # No shell. Environment was cleared by the fixed env -i wrapper.
                 os.execve(command[0], command, environment)
             time.sleep(0.02)
