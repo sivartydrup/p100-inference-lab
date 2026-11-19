@@ -1,5 +1,7 @@
 # Benchmark and tuning roadmap
 
+Multi-GPU session history now adds optional immutable participant/enclosure declarations, per-card conditions and conservative overlap checks. See [MEASURED_SESSIONS.md](MEASURED_SESSIONS.md). This continues Phase 2; it does not enable Phase 3 tuning or validate the native systemd worker's enforcement boundary.
+
 Version 0.4 adds a local resident-log import protocol, immutable terminal history, read-only snapshot publication/overlay and measured comparison UI. It preserves partial thermal-cutoff results and distinguishes logged from declared power caps. This provides history for external resident acceptance runs; it does not complete native systemd execution acceptance, enable browser controls or constitute a production deployment. See [MEASURED_HISTORY.md](MEASURED_HISTORY.md).
 
 ## Phase 1 — current foundation

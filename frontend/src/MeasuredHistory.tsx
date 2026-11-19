@@ -5,6 +5,142 @@ const number = (value: number | undefined | null, digits = 2) =>
     ? value.toFixed(digits)
     : "—";
 
+function contextLabel(job: NativeJob) {
+  const context = job.provenance.test_context;
+  if (!context) return "Conditions not recorded";
+  return `${context.gpu_uuids.length} declared GPU${context.gpu_uuids.length === 1 ? "" : "s"} · Case ${context.enclosure}`;
+}
+
+function MeasuredSessions({ jobs }: { jobs: NativeJob[] }) {
+  const groups = new Map<string, NativeJob[]>();
+  for (const job of jobs) {
+    const session = job.provenance.test_context?.session_id;
+    if (job.provenance.record_origin === "operator_import" && session)
+      groups.set(session, [...(groups.get(session) || []), job]);
+  }
+  if (!groups.size) return null;
+  return (
+    <div aria-label="Measured GPU sessions">
+      <h3>GPU test sessions</h3>
+      <p className="muted">
+        Session membership and case conditions are operator-declared. This view
+        uses only the latest records returned by the history API. Missing
+        records do not mean a GPU failed. Per-card medians are not combined
+        throughput or PSU measurements.
+      </p>
+      {[...groups].map(([id, runs]) => {
+        const context = runs[0].provenance.test_context!;
+        const declared = context.gpu_uuids.map((g) => g.toLowerCase()).sort();
+        const seen = runs
+          .map((j) => j.provenance.gpu_uuid?.toLowerCase())
+          .sort();
+        const membership = JSON.stringify(seen) === JSON.stringify(declared);
+        const consistent = runs.every((j) => {
+          const c = j.provenance.test_context!;
+          return (
+            c.enclosure === context.enclosure &&
+            JSON.stringify(c.gpu_uuids.map((g) => g.toLowerCase()).sort()) ===
+              JSON.stringify(declared)
+          );
+        });
+        const workload =
+          !!runs[0].provenance.session_workload_key &&
+          runs.every(
+            (j) =>
+              j.provenance.session_workload_key ===
+              runs[0].provenance.session_workload_key,
+          );
+        const starts = runs.map((j) => Date.parse(j.started_at || ""));
+        const ends = runs.map(
+          (j, i) => starts[i] + (j.provenance.observed_seconds ?? NaN) * 1000,
+        );
+        const overlap = (Math.min(...ends) - Math.max(...starts)) / 1000;
+        const comparable =
+          membership &&
+          consistent &&
+          workload &&
+          Number.isFinite(overlap) &&
+          overlap > 0;
+        return (
+          <article key={id}>
+              <h4>Case {context.enclosure} · {declared.length} GPUs</h4>
+            <p>{contextLabel(runs[0])}</p>
+            {comparable ? (
+              <p>
+                All declared GPUs present · Common measured window:{" "}
+                {number(overlap, 1)} s.{" "}
+                {runs.every(
+                  (j) => j.status === "succeeded" && !j.summary?.partial,
+                )
+                  ? "Each card completed its target window."
+                  : "Includes failed or partial measurements; this is not a passed session."}
+              </p>
+            ) : (
+              <p className="error">
+                Session comparison unavailable: records are missing, duplicated,
+                inconsistent, use different workloads/drivers, or have no common
+                measured window.
+              </p>
+            )}
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>GPU UUID</th>
+                    <th>Engine</th>
+                    <th>Power cap</th>
+                    <th>Window / outcome</th>
+                    <th>Median decode tokens/sec</th>
+                    <th>Peak sampled °C</th>
+                    <th>Mean sampled W</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {runs.map((j) => (
+                    <tr key={j.id}>
+                      <td>{j.provenance.gpu_uuid || "Unknown GPU"}</td>
+                      <td>{j.provenance.engine}</td>
+                      <td>
+                        {number(j.provenance.declared_power_limit_w, 0)} W (
+                        {j.provenance.power_limit_evidence === "sampled"
+                          ? "logged"
+                          : j.provenance.power_limit_evidence ===
+                              "operator_declared"
+                            ? "declared"
+                            : "unknown"}
+                        )
+                      </td>
+                      <td>
+                        {number(j.provenance.observed_seconds, 1)} /{" "}
+                        {number(j.provenance.target_seconds, 0)} s ·{" "}
+                        {j.summary?.partial ? "Partial / " : ""}
+                        {j.error_code || j.status}
+                      </td>
+                      <td>
+                        {number(
+                          j.summary?.metrics.decode_tokens_per_second?.median,
+                        )}
+                      </td>
+                      <td>
+                        {number(j.summary?.telemetry?.peak_temperature_c, 0)}
+                      </td>
+                      <td>{number(j.summary?.telemetry?.mean_power_w)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+              <details>
+                <summary>Session identifier</summary>
+                <p>{id}</p>
+              </details>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 export function MeasuredComparison({ jobs }: { jobs: NativeJob[] }) {
   const groups = new Map<string, NativeJob[]>();
   for (const job of jobs) {
@@ -19,6 +155,7 @@ export function MeasuredComparison({ jobs }: { jobs: NativeJob[] }) {
   if (!groups.size) return null;
   return (
     <div aria-label="Measured run comparison">
+      <MeasuredSessions jobs={jobs} />
       <h3>Measured runs by workload</h3>
       <p className="muted">
         Operator-imported history. Groups share model hashes, prompt/settings,
@@ -40,6 +177,7 @@ export function MeasuredComparison({ jobs }: { jobs: NativeJob[] }) {
                 <thead>
                   <tr>
                     <th>Engine</th>
+                    <th>Conditions</th>
                     <th>Power cap</th>
                     <th>Window / outcome</th>
                     <th>Median decode tokens/sec</th>
@@ -52,6 +190,7 @@ export function MeasuredComparison({ jobs }: { jobs: NativeJob[] }) {
                   {runs.map((j) => (
                     <tr key={j.id}>
                       <td>{j.provenance.engine}</td>
+                      <td>{contextLabel(j)}</td>
                       <td>
                         {number(j.provenance.declared_power_limit_w, 0)} W{" "}
                         <span>
@@ -117,6 +256,11 @@ export function MeasuredDetails({ job }: { job: NativeDetail }) {
         Observed {number(p.observed_seconds, 1)} of{" "}
         {number(p.target_seconds, 0)} seconds. {summary?.sample_count} measured
         requests; warmup excluded.
+      </p>
+      <p>
+        GPU: {p.gpu_uuid || "Not recorded"}. {contextLabel(job)}.{" "}
+        {p.test_context &&
+          "Conditions are operator-declared, not independently attested."}
       </p>
       {summary?.partial && (
         <p role="alert" className="error">

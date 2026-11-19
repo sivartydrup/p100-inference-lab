@@ -9,7 +9,7 @@ import tempfile
 import time
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import Field, field_validator, model_validator
@@ -111,6 +111,22 @@ class Reading(Strict):
         return self
 
 
+class TestContext(Strict):
+    """Operator declarations, never inferred from board telemetry."""
+    session_id: UUID | None = None
+    gpu_uuids: list[Annotated[str, Field(pattern=GPU)]] = Field(min_length=1, max_length=8)
+    enclosure: Literal["unknown", "open", "closed"] = "unknown"
+
+    @model_validator(mode="after")
+    def participants(self):
+        if len({gpu.lower() for gpu in self.gpu_uuids}) != len(self.gpu_uuids):
+            raise ValueError("Duplicate session GPU")
+        if len(self.gpu_uuids) > 1 and self.session_id is None:
+            raise ValueError("Multiple GPUs require a session ID")
+        self.gpu_uuids = sorted(self.gpu_uuids, key=str.lower)
+        return self
+
+
 class MeasuredRun(Strict):
     format: Literal["p100-resident-measurement-v1"] = "p100-resident-measurement-v1"
     run_id: UUID
@@ -137,6 +153,7 @@ class MeasuredRun(Strict):
     requests: list[RequestSample] = Field(min_length=1, max_length=1000)
     telemetry: list[Reading] = Field(min_length=1, max_length=3600)
     source_sha256: dict[str, str] = Field(min_length=1, max_length=12)
+    test_context: TestContext | None = None
 
     @field_validator("model_license", "gpu_name")
     @classmethod
@@ -156,6 +173,8 @@ class MeasuredRun(Strict):
 
     @model_validator(mode="after")
     def consistency(self):
+        if self.test_context and self.gpu_uuid.lower() not in {gpu.lower() for gpu in self.test_context.gpu_uuids}:
+            raise ValueError("Measured GPU must be a session participant")
         start, end = instant(self.started_at), instant(self.finished_at)
         if self.observed_seconds > self.target_seconds or end < start + timedelta(seconds=self.observed_seconds - .1):
             raise ValueError("Inconsistent observation window")
@@ -213,7 +232,11 @@ class MeasuredRun(Strict):
         return self
 
     def digest(self):
-        return hashlib.sha256(encode(self.model_dump(mode="json")).encode()).hexdigest()
+        data = self.model_dump(mode="json")
+        # Preserve the exact v1 fingerprint for archived imports without context.
+        if self.test_context is None:
+            data.pop("test_context")
+        return hashlib.sha256(encode(data).encode()).hexdigest()
 
     def provenance(self):
         fields = ("engine", "engine_revision", "binary_sha256", "model_id", "model_license",
@@ -221,7 +244,12 @@ class MeasuredRun(Strict):
                   "workload", "target_seconds", "observed_seconds", "outcome", "cutoff_c",
                   "declared_power_limit_w", "power_limit_evidence", "source_sha256")
         data = self.model_dump(mode="json", include=set(fields))
+        if self.test_context:
+            data["test_context"] = self.test_context.model_dump(mode="json")
+            data["context_assurance"] = "Operator-declared session participants and enclosure; not independently attested"
         comparable = {k: data[k] for k in ("model_artifacts", "gpu_uuid", "driver_version", "workload")}
+        workload = {k: data[k] for k in ("model_artifacts", "driver_version", "workload")}
+        data["session_workload_key"] = hashlib.sha256(encode(workload).encode()).hexdigest()
         data.update({"record_origin": "operator_import", "protocol": self.format,
                      "comparison_key": hashlib.sha256(encode(comparable).encode()).hexdigest(),
                      "measurement_sha256": self.digest(), "warmup_excluded": self.warmup is not None,

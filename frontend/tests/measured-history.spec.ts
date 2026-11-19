@@ -157,3 +157,124 @@ test("imported measurements compare cap evidence, partial windows and streamed t
     ),
   ).toBe(true);
 });
+
+test("GPU sessions distinguish paired windows, incomplete history and incompatible workloads", async ({
+  page,
+}) => {
+  const gpu = "GPU-11111111-1111-1111-1111-111111111111";
+  const peerGpu = "GPU-22222222-2222-2222-2222-222222222222";
+  const session = "66666666-6666-4666-8666-666666666666";
+  const context = {
+    session_id: session,
+    gpu_uuids: [gpu, peerGpu],
+    enclosure: "closed",
+  };
+  const first = {
+    ...imported,
+    status: "succeeded",
+    error_code: null,
+    started_at: "2026-01-01T00:00:00Z",
+    provenance: {
+      ...imported.provenance,
+      observed_seconds: 600,
+      target_seconds: 600,
+      gpu_uuid: gpu,
+      test_context: context,
+      session_workload_key: "workload-one",
+    },
+    summary: { ...imported.summary, partial: false },
+  };
+  const second = {
+    ...first,
+    id: "77777777-7777-4777-8777-777777777777",
+    started_at: "2026-01-01T00:00:01Z",
+    provenance: {
+      ...first.provenance,
+      gpu_uuid: peerGpu,
+      comparison_key: "different-card",
+    },
+  };
+  let items: object[] = [first, second];
+  let mutations = 0;
+  await page.route("**/api/**", (route) => {
+    const request = route.request();
+    expect(request.headers().authorization).toBe("Bearer " + token);
+    if (request.method() !== "GET") mutations++;
+    const path = new URL(request.url()).pathname;
+    if (path === "/api/native-benchmarks")
+      return route.fulfill({
+        json: {
+          configured: true,
+          execution_available_via_api: false,
+          items,
+        },
+      });
+    return route.fulfill({ json: fixture[path.split("/").pop()!] });
+  });
+  const connect = async () => {
+    await page.goto("/");
+    await page.getByLabel("Access token").fill(token);
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+  };
+  await connect();
+  const panel = page.getByLabel("Measured GPU sessions");
+  await expect(panel).toContainText("Common measured window: 599.0 s");
+  await expect(panel).toContainText("Each card completed its target window");
+  await expect(panel).toContainText("Case closed");
+  await expect(panel).toContainText(
+    "not combined throughput or PSU measurements",
+  );
+  await expect(
+    panel.getByRole("cell", { name: gpu, exact: true }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  for (const bad of [
+    [first], // Other participant omitted, including history-window truncation.
+    [
+      first,
+      {
+        ...second,
+        provenance: {
+          ...second.provenance,
+          session_workload_key: "other-model",
+        },
+      },
+    ],
+    [first, { ...second, started_at: "2026-01-02T00:00:00Z" }],
+    [
+      first,
+      {
+        ...second,
+        provenance: {
+          ...second.provenance,
+          test_context: { ...context, enclosure: "open" },
+        },
+      },
+    ],
+    [first, { ...second, provenance: { ...second.provenance, gpu_uuid: gpu } }],
+  ]) {
+    items = bad;
+    await connect();
+    await expect(panel).toContainText("Session comparison unavailable");
+    await expect(panel).not.toContainText(
+      "Each card completed its target window",
+    );
+  }
+  items = [
+    first,
+    {
+      ...second,
+      status: "failed",
+      error_code: "temperature_cutoff",
+      summary: { ...second.summary, partial: true },
+    },
+  ];
+  await connect();
+  await expect(panel).toContainText("not a passed session");
+  expect(mutations).toBe(0);
+});

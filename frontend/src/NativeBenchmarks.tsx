@@ -5,6 +5,7 @@ export type NativeJob = {
   id: string;
   status: string;
   created_at: string;
+  started_at?: string | null;
   source: "native";
   error_code: string | null;
   preset_id: string;
@@ -13,6 +14,13 @@ export type NativeJob = {
     model_id: string;
     record_origin?: string;
     comparison_key?: string;
+    session_workload_key?: string;
+    gpu_uuid?: string;
+    test_context?: {
+      session_id: string | null;
+      gpu_uuids: string[];
+      enclosure: "unknown" | "open" | "closed";
+    };
     observed_seconds?: number;
     target_seconds?: number;
     declared_power_limit_w?: number | null;

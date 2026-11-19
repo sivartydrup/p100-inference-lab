@@ -1,5 +1,7 @@
 # Architecture and API
 
+[Measured GPU sessions](MEASURED_SESSIONS.md) add optional operator-declared session provenance to terminal imports, with no schema migration or new API route. The browser groups only loaded records with matching participant lists, enclosure and workload/driver keys, checks their measured-window intersection, and preserves per-card outcomes and metrics. Legacy document digests are unchanged when context is absent. Session declarations never authorize execution.
+
 Measured resident history is described in [MEASURED_HISTORY.md](MEASURED_HISTORY.md). A local converter crosschecks the fixed archived files, validates a versioned normalized document and recomputes aggregates. Import appends only terminal rows to the separate native database; synthetic import IDs are never executable systemd units. No web/fixture schema migration or HTTP write route is added. A backup/publish command atomically replaces a standalone native snapshot mounted read-only by the optional history overlay. The existing authenticated GET/detail/export API serves imported request, warmup and telemetry evidence. Comparison groups share exact model/workload/prompt hashes and GPU/driver, with cap evidence and partial windows shown explicitly. No host execution privilege is added to the container.
 
 The optional [native runner](NATIVE_RUNNER.md) adds a separate host-only CLI and read-only native history. Base production topology below remains unchanged.

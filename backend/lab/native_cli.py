@@ -44,6 +44,9 @@ def parser():
     prepare.add_argument("--model-license", required=True)
     prepare.add_argument("--declared-power-limit", type=float)
     prepare.add_argument("--output", required=True, type=Path)
+    prepare.add_argument("--session-id", type=UUID, help="Operator-declared shared session, not an execution request")
+    prepare.add_argument("--session-gpu", action="append", default=[], help="Repeat for every declared participant UUID")
+    prepare.add_argument("--enclosure", choices=("unknown", "open", "closed"), default="unknown")
     ingest = commands.add_parser("import", help="Append a validated terminal measurement; never queue work")
     ingest.add_argument("--file", required=True, type=Path)
     publish = commands.add_parser("publish", help="Publish a standalone read-only dashboard snapshot")
@@ -56,6 +59,12 @@ def main(argv=None):
     try:
         if args.command == "prepare-import":
             run = prepare_bundle(args.bundle, args.engine, args.model_id, args.model_license, args.declared_power_limit)
+            if args.session_id or args.session_gpu or args.enclosure != "unknown":
+                from .measured_history import MeasuredRun
+                data = run.model_dump(mode="json")
+                data["test_context"] = {"session_id": str(args.session_id) if args.session_id else None,
+                                        "gpu_uuids": args.session_gpu or [run.gpu_uuid], "enclosure": args.enclosure}
+                run = MeasuredRun.model_validate_json(json.dumps(data, allow_nan=False))
             with args.output.open("x", encoding="utf-8") as stream:
                 os.chmod(args.output, 0o600)
                 stream.write(run.model_dump_json(indent=2))
