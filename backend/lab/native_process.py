@@ -86,6 +86,16 @@ def capture(argv, env, deadline, check=lambda: None, limit=OUTPUT_LIMIT):
 
 
 class SystemdSupervisor:
+    def worker_starttime(self):
+        return Path('/proc/self/stat').read_text().rsplit(') ', 1)[1].split()[19]
+
+    def gate_context(self):
+        return tempfile.TemporaryDirectory(prefix="p100-bench-gate-", dir=self.env["XDG_RUNTIME_DIR"])
+
+    def approve_gate(self, gate):
+        with gate.open("xb") as stream:
+            stream.write(b"approved\n")
+
     def namespace_reference(self):
         return {name: os.readlink(f"/proc/self/ns/{name}") for name in ("user", "mnt")}
 
@@ -145,9 +155,10 @@ class SystemdSupervisor:
         return ["/usr/bin/systemd-run", "--user", "--no-ask-password", "--quiet", "--wait", "--pipe",
                 "--collect", "--service-type=exec", "--expand-environment=no", f"--unit={unit}",
                 *["--property=" + p for p in properties], "--", "/usr/bin/env", "-i",
-                "PATH=/usr/bin:/bin", "LANG=C.UTF-8", sys.executable,
+                "PATH=/usr/bin:/bin", "LANG=C.UTF-8", sys.executable, "-I",
                 str(Path(__file__).with_name("native_child.py")), "--gate", str(gate),
                 "--worker-pid", str(os.getpid()), "--environment", json.dumps(preset.environment()),
+                "--worker-starttime", self.worker_starttime(),
                 "--namespace-reference", json.dumps(self.namespace_reference()),
                 "--", *preset.argv()]
 
@@ -179,7 +190,7 @@ class SystemdSupervisor:
         if remaining <= 0:
             raise NativeError("deadline_exceeded")
         # A late D-Bus unit creation can never execute a benchmark without this gate.
-        with tempfile.TemporaryDirectory(prefix="p100-bench-gate-", dir=self.env["XDG_RUNTIME_DIR"]) as directory:
+        with self.gate_context() as directory:
             gate = Path(directory) / "approved"
             released = False
             def guarded_check():
@@ -189,8 +200,7 @@ class SystemdSupervisor:
                     check()
                     if time.monotonic() >= deadline:
                         raise NativeError("deadline_exceeded")
-                    with gate.open("xb") as stream:
-                        stream.write(b"approved\n")
+                    self.approve_gate(gate)
                     released = True
             result = capture(self.command(preset, unit, remaining, gate), self.env, deadline, guarded_check)
             if not released:

@@ -144,6 +144,7 @@ def test_gate_requires_live_worker_and_effective_isolation_before_exec(tmp_path,
     # A dead worker PID fails before an executable can start, even with an approval file.
     gate.write_bytes(b"approved\n")
     cmd=[sys.executable,str(child),"--gate",str(gate),"--worker-pid","2147483647",
+         "--worker-starttime",Path('/proc/self/stat').read_text().rsplit(') ',1)[1].split()[19],
          "--environment",json.dumps(artifacts.environment()),
          "--namespace-reference",json.dumps({name: os.readlink(f'/proc/self/ns/{name}') for name in ('user','mnt')}),
          "--",*artifacts.argv()]
@@ -151,6 +152,9 @@ def test_gate_requires_live_worker_and_effective_isolation_before_exec(tmp_path,
     assert result.returncode != 0 and not result.stdout
     # Approval alone must not exec outside effective isolation, even with a live worker.
     cmd[cmd.index("2147483647")] = str(os.getpid())
+    wrong=cmd.copy();wrong[wrong.index('--worker-starttime')+1]='0'
+    reused=subprocess.run(wrong,capture_output=True,timeout=5)
+    assert reused.returncode!=0 and b'Worker identity changed' in reused.stderr and not reused.stdout
     gate.unlink()
     process=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env={"PRIVATE_TEST_SECRET":"must-not-inherit"})
     try:
