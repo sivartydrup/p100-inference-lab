@@ -12,6 +12,11 @@ Windows browser → Ubuntu port 3000 → a non-root container containing compile
 
 ## Telemetry and engine adapters
 
+[Fan monitoring](FAN_MONITORING.md) adds a bounded, RPM-only hwmon collector to
+the shared system sample. The UI labels simulated, unavailable, partial and stale
+readings and makes no verified fan-to-GPU assignment. No control attributes,
+subprocesses, driver loading or new host mounts/permissions are used.
+
 LAB_TELEMETRY is mock (default on Windows) or live (default elsewhere; explicitly set in Compose). Samples identify mode and scope. Mock data is a fixed simulated development fixture, never an inferred P100 result. Live CPU/RAM use /host/proc in Compose; disk is the DB volume filesystem. GPU telemetry uses one fixed nvidia-smi query with a five-second timeout, tolerates absent tools/drivers and unknown metrics, and issues no tuning commands. Netdata is neither reconfigured nor proxied.
 
 The [shared telemetry hub](LIVE_TELEMETRY.md) coalesces REST reads and serves up to eight authenticated SSE subscribers from one approximately 1 Hz sampler per API process. Queues retain only the latest sample. Collection becomes idle without subscribers or REST requests. The browser uses Authorization headers, falls back to polling and preserves monotonic sample age. This cache is never used for benchmark safety decisions.
