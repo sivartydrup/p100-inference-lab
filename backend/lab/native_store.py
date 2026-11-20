@@ -76,19 +76,25 @@ def public(row):
     return result
 
 
-def enqueue(path, preset, request_key):
+def enqueue(path, preset, request_key, *, transport=None):
+    if transport not in (None, 'admin-systemd-v1'):
+        raise NativeError('invalid_execution_transport')
     with connect(path) as c:
         c.execute("BEGIN IMMEDIATE")
         prior = c.execute("SELECT * FROM native_jobs WHERE request_key=?", (request_key,)).fetchone()
         if prior:
-            if prior["preset_hash"] != preset.fingerprint():
+            if prior["preset_hash"] != preset.fingerprint() or (transport is not None and json.loads(prior['provenance_json']).get('execution_transport') != transport):
                 raise NativeError("idempotency_conflict")
             return public(prior)
         if c.execute("SELECT COUNT(*) FROM native_jobs WHERE status IN ('queued','running','cleanup_failed')").fetchone()[0] >= 10:
             raise NativeError("native_queue_full")
         job_id = str(uuid4())
+        provenance = preset.public()
+        if transport is not None:
+            provenance['execution_transport'] = transport
+            provenance['execution_policy'] = {'power_limit_w': 150, 'temperature_cutoff_c': preset.max_temperature_c}
         c.execute("INSERT INTO native_jobs(id,request_key,preset_id,preset_hash,provenance_json,status,created_at) VALUES(?,?,?,?,?,'queued',?)",
-                  (job_id, request_key, preset.id, preset.fingerprint(), encode(preset.public()), timestamp()))
+                  (job_id, request_key, preset.id, preset.fingerprint(), encode(provenance), timestamp()))
         event(c, job_id, "queued_by_local_administrator")
         return public(c.execute("SELECT * FROM native_jobs WHERE id=?", (job_id,)).fetchone())
 

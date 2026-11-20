@@ -10,9 +10,11 @@ import time
 from pathlib import Path
 
 
-def confirm_isolation(command, environment, reference):
+def confirm_isolation(command, environment, reference, *, require_empty_capabilities=False):
     """Check effective kernel state inside the unit, not just systemd properties."""
     try:
+        if not hasattr(os, 'geteuid') or os.geteuid() == 0:
+            raise ValueError("Root native payload")
         if not isinstance(reference, dict) or set(reference) != {"user", "mnt"}:
             raise ValueError("Missing namespace reference")
         for namespace in ("user", "mnt"):
@@ -25,6 +27,8 @@ def confirm_isolation(command, environment, reference):
         status = dict(line.split(":", 1) for line in Path('/proc/self/status').read_text().splitlines() if ":" in line)
         if status.get('NoNewPrivs', '').strip() != '1' or status.get('Seccomp', '').strip() != '2':
             raise ValueError("Missing effective process restrictions")
+        if require_empty_capabilities and any(int(status.get(name, '-1').strip(), 16) != 0 for name in ('CapEff', 'CapPrm', 'CapBnd')):
+            raise ValueError("Payload capabilities remain")
         paths = [command[0], *environment['LD_LIBRARY_PATH'].split(':')]
         if '-m' in command:
             paths.append(command[command.index('-m') + 1])
@@ -47,8 +51,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--gate", required=True)
     parser.add_argument("--worker-pid", required=True, type=int)
+    parser.add_argument("--worker-starttime", required=True, type=int)
     parser.add_argument("--environment", required=True)
     parser.add_argument("--namespace-reference", required=True)
+    parser.add_argument("--require-empty-capabilities", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if os.name != "posix" or not hasattr(os, "pidfd_open"):
@@ -67,6 +73,12 @@ def main():
     poller = select.poll()
     poller.register(parent, select.POLLIN)
     try:
+        try:
+            birth = int(Path(f'/proc/{args.worker_pid}/stat').read_text().rsplit(') ', 1)[1].split()[19])
+        except (OSError, ValueError, IndexError):
+            raise SystemExit("Worker identity unavailable") from None
+        if birth != args.worker_starttime:
+            raise SystemExit("Worker identity changed")
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             if poller.poll(0):
@@ -76,7 +88,8 @@ def main():
             except FileNotFoundError:
                 approved = False
             if approved:
-                confirm_isolation(command, environment, json.loads(args.namespace_reference))
+                confirm_isolation(command, environment, json.loads(args.namespace_reference),
+                                  require_empty_capabilities=args.require_empty_capabilities)
                 # No shell. Environment was cleared by the fixed env -i wrapper.
                 os.execve(command[0], command, environment)
             time.sleep(0.02)

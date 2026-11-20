@@ -33,3 +33,9 @@ Allow only a finite set of operations (start/stop, load/unload) against administ
 Ship only after HTTPS or a protected tunnel, separated read/control permissions, replay/CSRF review, credential rotation, audit integrity, host agent permission isolation and negative security tests are in place. Model downloads need a separate license/provenance and integrity design. No general shell endpoint at any phase.
 
 Report suspected vulnerabilities privately to the repository owner through their published contact. Do not post secrets, private filesystem paths or working exploits in public issues.
+
+## Administrator-started system transport
+
+The optional `lab.admin_cli` is a manually invoked root controller, not a web service or permission broker. It requires isolated Python and a sealed root-owned runtime/dependency tree, registry, artifact paths and private database/identity marker. Root explicitly chooses the existing non-root payload account. No sudo/polkit grant, AppArmor exception, global sysctl, daemon or auto-start unit is supplied. The browser token cannot reach this code path; Compose remains unprivileged and management-disabled.
+
+The controller's trusted computing base includes its administrator-installed Python/dependencies and fixed OS systemctl/systemd-run/nvidia-smi tools. Each native payload receives an empty capability bounding set and non-root User/Group, a fixed allowlisted environment and argv, isolated Python guard, per-unit resource/runtime limits and effective kernel checks. The group-readable gate is atomically published by root in a directory the payload cannot write. Root-owned durable intent is committed before launch; recovery refuses unknown units, confirms cleanup and marks interrupted jobs without replay. See [ADMIN_WORKER.md](docs/ADMIN_WORKER.md) for prerequisites, operational exclusions and host acceptance still required.

@@ -63,3 +63,4 @@ jobs:
       - run: docker build -t p100-lab:phase1 .
       - run: python3 tests/container_smoke.py
       - run: python3 tests/native_history_smoke.py
+      - run: python3 tests/admin_worker_smoke.py

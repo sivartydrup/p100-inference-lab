@@ -1,5 +1,7 @@
 # Benchmark and tuning roadmap
 
+An optional [administrator-started worker](ADMIN_WORKER.md) now provides fixed non-root system-unit payloads, root-owned queue/preset boundaries, effective isolation checks, continuous sampled thermal/150 W policy checks and durable interruption recovery. It is uninstalled/disabled and requires actual integrated host acceptance. It adds no browser controls or scheduling permission grant.
+
 Ubuntu native-worker acceptance exposed ineffective filesystem isolation despite reported user-unit properties. The child now verifies effective kernel restrictions before exec and refuses the current unsupported host boundary. A separately reviewed host-isolation solution and resumed acceptance remain prerequisites to enabling managed native benchmarking; see [NATIVE_VERIFICATION.md](NATIVE_VERIFICATION.md).
 
 Multi-GPU session history now adds optional immutable participant/enclosure declarations, per-card conditions and conservative overlap checks. See [MEASURED_SESSIONS.md](MEASURED_SESSIONS.md). This continues Phase 2; it does not enable Phase 3 tuning or validate the native systemd worker's enforcement boundary.

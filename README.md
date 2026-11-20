@@ -12,6 +12,8 @@ An Ubuntu-first, open-source observation and benchmarking foundation for native 
 
 Engine/model controls are **not implemented**. The reserved control endpoint always returns 403 after authentication. There is no arbitrary command API, shell interpreter, SSH automation, model downloader, driver installer or Docker socket mount. Existing Netdata and native engines remain independent.
 
+The optional [administrator-started worker](docs/ADMIN_WORKER.md) adds a disabled, host-only system-unit transport with non-root engine payloads, sealed presets and a private durable queue. It installs no service or privilege grant and is not invoked by the dashboard. Review and actual host acceptance are required before enabling it.
+
 ## Phase 2 benchmark foundation (fixture-only)
 
 The optional [fixture benchmark lab](docs/PHASE2.md) adds a durable job queue, separate non-root single-job worker, strict presets, cancellation/deadlines, raw warmup/trial samples, summary statistics, provenance and JSON export. It uses deterministic simulated metrics, never launches a native engine, and never adds synthetic results to manual benchmark history.

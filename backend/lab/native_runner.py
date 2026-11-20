@@ -158,9 +158,11 @@ def runtime_lock_path():
     return runtime / "p100-lab-native-global"
 
 
-def serve(db, registry, supervisor, hardware, stop, once=False):
+def serve(db, registry, supervisor, hardware, stop, once=False, *, lock_path=None, startup_check=None):
     # Global per-user exclusion covers workers pointed at different databases.
-    with worker_lock(runtime_lock_path()), worker_lock(Path(db)):
+    with worker_lock(lock_path if lock_path is not None else runtime_lock_path()), worker_lock(Path(db)):
+        if startup_check is not None:
+            startup_check()
         recover(db, supervisor)
         while not stop.is_set():
             job = store.claim(db)

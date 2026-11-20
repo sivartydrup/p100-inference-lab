@@ -268,6 +268,7 @@ def test_preflight_rejects_busy_wrong_hot_or_exhausted_gpu(db, preset, monkeypat
 def test_systemd_command_and_resource_attestation_are_fixed(preset):
     supervisor = object.__new__(SystemdSupervisor)
     supervisor.namespace_reference = lambda: {"user": "user:[1]", "mnt": "mnt:[2]"}
+    supervisor.worker_starttime = lambda: '1'
     unit = unit_name(str(uuid4()), "measured", 0)
     argv = supervisor.command(preset, unit, 5, Path("/run/user/1000/private/approved"))
     assert "--expand-environment=no" in argv and "--property=KillMode=control-group" in argv
@@ -314,6 +315,7 @@ def test_start_gate_is_released_only_after_policy_confirmation(tmp_path, preset,
     supervisor = object.__new__(SystemdSupervisor)
     supervisor.env = {"XDG_RUNTIME_DIR": str(tmp_path)}
     supervisor.namespace_reference = lambda: {"user": "user:[1]", "mnt": "mnt:[2]"}
+    supervisor.worker_starttime = lambda: '1'
     attestations = iter([False, True])
     supervisor.attest = lambda *_: next(attestations)
     def transport(argv, env, deadline, check):
@@ -350,6 +352,7 @@ def test_cleanup_requires_a_confirmed_inactive_unit():
 def test_unconfirmed_policy_never_opens_start_gate(tmp_path, preset, monkeypatch, behavior):
     supervisor = object.__new__(SystemdSupervisor)
     supervisor.namespace_reference = lambda: {"user": "user:[1]", "mnt": "mnt:[2]"}
+    supervisor.worker_starttime = lambda: '1'
     supervisor.env = {"XDG_RUNTIME_DIR": str(tmp_path)}
     def attest(*_):
         if behavior == "policy_error":
