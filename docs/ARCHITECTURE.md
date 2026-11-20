@@ -14,6 +14,8 @@ Windows browser → Ubuntu port 3000 → a non-root container containing compile
 
 LAB_TELEMETRY is mock (default on Windows) or live (default elsewhere; explicitly set in Compose). Samples identify mode and scope. Mock data is a fixed simulated development fixture, never an inferred P100 result. Live CPU/RAM use /host/proc in Compose; disk is the DB volume filesystem. GPU telemetry uses one fixed nvidia-smi query with a five-second timeout, tolerates absent tools/drivers and unknown metrics, and issues no tuning commands. Netdata is neither reconfigured nor proxied.
 
+The [shared telemetry hub](LIVE_TELEMETRY.md) coalesces REST reads and serves up to eight authenticated SSE subscribers from one approximately 1 Hz sampler per API process. Queues retain only the latest sample. Collection becomes idle without subscribers or REST requests. The browser uses Authorization headers, falls back to polling and preserves monotonic sample age. This cache is never used for benchmark safety decisions.
+
 NativeAdapter registers only kmic, pxa and qr0n, validates IDs and queries fixed user-service names. It has no control method. Container service state is unavailable because host DBus/systemd are deliberately not mounted. This distinguishes registration from discovery, process health and inference readiness. No engine sources, model weights or engine-specific launch flags are bundled. Exact upstream identities are unverified and must be recorded during host acceptance.
 
 Model roots are an administrator-only JSON array of absolute paths. Scans expose relative names/sizes, skip symlinks and bound matching files/directories. API callers cannot supply roots. Host-local malicious filesystem races are outside this boundary.
@@ -26,6 +28,7 @@ Every /api route requires `Authorization: Bearer TOKEN`. Unknown/extra payload f
 |---|---|---|
 | GET | /healthz | Minimal public liveness |
 | GET | /api/system | Mode/scope, timestamp, CPU, RAM, DB disk, GPUs |
+| GET | /api/system/stream | Authenticated SSE telemetry; shared sampler, bounded clients, no caching |
 | GET | /api/engines | Three registered adapters, service states, controls_enabled=false |
 | GET | /api/models | Relative model filenames/sizes, scan warnings/truncation |
 | GET | /api/benchmarks?limit=50 | Newest results, limit 1–200 |
@@ -38,7 +41,7 @@ Example benchmark payload:
 {"engine":"kmic","model":"example.gguf","tokens_per_second":12.5,"notes":"Manual trial, record hardware/preset details here"}
 ```
 
-Benchmark records are self-reported, not verified measurements. The server adds source=manual and a UTC timestamp. UI shows history; write through an authenticated API client. UI retries five seconds after each completed refresh. A shared 10-second deadline aborts the complete four-endpoint snapshot, including response bodies; failed refreshes cancel outstanding sibling requests. Old readings lose their live label after 15 seconds without a successful snapshot, using browser receipt time rather than the server clock. Returning to a suspended tab immediately rechecks sample age; responses completing after their wall-clock deadline are rejected even if the timeout callback was suspended. Failures/timeouts display a stale-data warning, automatic retries recover the live indicator, and disconnect cancels active requests and clears token/data. In-flight server operations may complete after disconnect.
+Benchmark records are self-reported, not verified measurements. The server adds source=manual and a UTC timestamp. UI shows history; write through an authenticated API client. Inventory and fallback telemetry polling retry five seconds after each completed refresh, with a shared ten-second deadline covering response bodies and sibling cancellation on failure. Streaming updates replace only system readings; inventory refreshes do not reset an active stream's sample age. Old readings lose their live label after fifteen seconds without a fresh reading, using browser receipt time minus monotonic sample age. Returning to a suspended tab rechecks age and reconnects the stream. Late responses are rejected even if timeout callbacks were suspended. Disconnect cancels active requests and clears token/data; in-flight server operations may complete afterward.
 
 ## Storage and operations
 

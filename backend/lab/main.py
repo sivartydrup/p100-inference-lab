@@ -1,4 +1,5 @@
 import hmac
+import asyncio
 import json
 import os
 import sqlite3
@@ -11,11 +12,13 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, ConfigDict, Field
 
 from .adapters import ENGINE_IDS, NativeAdapter, inventory
 from .telemetry import sample
+from .telemetry_stream import TelemetryHub, TelemetryUnavailable
 from . import jobs
 from . import native_store
 from .native_config import NativeError
@@ -50,6 +53,7 @@ def create_app(config=None):
     db = Path(config.get("db", os.getenv("LAB_DB", "data/lab.sqlite3")))
     roots = config.get("roots", json.loads(os.getenv("LAB_MODEL_ROOTS", "[]")))
     native_db = config.get("native_db", os.getenv("LAB_NATIVE_DB"))
+    telemetry_hub = TelemetryHub(lambda: {**sample(mode, db.parent), "controls_enabled": False})
     if not isinstance(roots, list) or not all(isinstance(x, str) for x in roots):
         raise ValueError("LAB_MODEL_ROOTS must be a JSON array of absolute paths")
 
@@ -72,10 +76,14 @@ def create_app(config=None):
                     id INTEGER PRIMARY KEY, created_at TEXT NOT NULL,
                     engine TEXT NOT NULL, action TEXT NOT NULL, outcome TEXT NOT NULL);
             """)
-        yield
+        try:
+            yield
+        finally:
+            await asyncio.to_thread(telemetry_hub.close)
 
     app = FastAPI(title="P100 Inference Lab", version="0.4.0", lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
+    app.state.telemetry_hub = telemetry_hub
 
     @app.middleware("http")
     async def security_headers(request, call_next):
@@ -109,7 +117,35 @@ def create_app(config=None):
 
     @app.get("/api/system", dependencies=auth)
     def system():
-        return {**sample(mode, db.parent), "controls_enabled": controls}
+        try:
+            return telemetry_hub.get()
+        except TelemetryUnavailable:
+            raise HTTPException(503, "Telemetry temporarily unavailable") from None
+
+    @app.get("/api/system/stream", dependencies=auth)
+    async def system_stream():
+        try:
+            key, queue = telemetry_hub.subscribe()
+        except TelemetryUnavailable:
+            raise HTTPException(429, "Telemetry stream capacity reached", headers={"Retry-After": "5"}) from None
+        async def events():
+            try:
+                while not telemetry_hub.closed:
+                    try:
+                        event = await asyncio.wait_for(queue.get(), timeout=5)
+                    except asyncio.TimeoutError:
+                        yield ": keepalive\n\n"
+                        continue
+                    try:
+                        payload = telemetry_hub.frame(event)
+                    except TelemetryUnavailable:
+                        yield 'event: unavailable\ndata: {"message":"Telemetry temporarily unavailable"}\n\n'
+                        continue
+                    yield "event: telemetry\ndata: " + json.dumps(payload, allow_nan=False) + "\n\n"
+            finally:
+                telemetry_hub.unsubscribe(key)
+        return StreamingResponse(events(), media_type="text/event-stream", background=BackgroundTask(telemetry_hub.unsubscribe, key), headers={
+            "Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
     @app.get("/api/engines", dependencies=auth)
     def engines():
