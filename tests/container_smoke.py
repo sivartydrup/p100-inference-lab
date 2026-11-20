@@ -74,9 +74,33 @@ def main():
         status, headers, body = request("/", authenticated=False)
         assert status == 200 and b"<html" in body
         assert headers["X-Frame-Options"] == "DENY"
-        for path in ("system", "engines", "models", "benchmarks", "benchmark-presets", "benchmark-jobs", "native-benchmarks"):
+        for path in ("system", "system/stream", "engines", "models", "benchmarks", "benchmark-presets", "benchmark-jobs", "native-benchmarks"):
             assert request("/api/" + path, authenticated=False)[0] == 401
         assert json.loads(request("/api/system")[2])["mode"] == "mock"
+        # Real HTTP streaming through the production image, not a buffered test client.
+        stream_request = urllib.request.Request(url + '/api/system/stream',
+                                               headers={'Authorization': 'Bearer ' + token})
+        def next_sample(response):
+            for _ in range(30):
+                line = response.readline()
+                assert line, 'Stream ended before a sample'
+                if line.startswith(b'data: '):
+                    value = json.loads(line[6:])
+                    assert value['telemetry_stream'] is True
+                    assert value['sample_age_ms'] < 3000
+                    assert value['controls_enabled'] is False
+                    return value
+            raise AssertionError('Stream did not deliver telemetry')
+        with urllib.request.urlopen(stream_request, timeout=10) as first, \
+                urllib.request.urlopen(stream_request, timeout=10) as second:
+            assert first.headers['Content-Type'].startswith('text/event-stream')
+            assert first.headers['Cache-Control'] == 'no-store'
+            assert first.headers['X-Accel-Buffering'] == 'no'
+            a, b = next_sample(first), next_sample(second)
+            assert a['sample_sequence'] == b['sample_sequence']
+            c, d = next_sample(first), next_sample(second)
+            assert c['sample_sequence'] == d['sample_sequence'] > a['sample_sequence']
+            assert c['sampled_at'] == d['sampled_at']
         assert request("/api/engines/kmic/control", {"action": "start"})[0] == 403
         assert json.loads(request("/api/native-benchmarks")[2])["configured"] is False
         assert request("/api/native-benchmarks", {"preset": "anything"})[0] == 403

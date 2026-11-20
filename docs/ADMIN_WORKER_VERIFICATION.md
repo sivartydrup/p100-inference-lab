@@ -1,5 +1,23 @@
 # Administrator worker verification
 
+## Ubuntu integrated acceptance: passed
+
+On 20 November 2026 the administrator ran the reviewed `1fad279` acceptance
+package on `p100-inference-server`. All five cases passed: durable synthetic CPU
+success, cancellation, timeout, controller crash/recovery, and a real isolated GPU
+job with durable results. Cancellation, timeout and crash reported cleanup.
+The report is `/var/tmp/p100-admin-acceptance-p100-admin-acceptance-7002f870000f.json`;
+evidence is `/var/lib/p100-admin-acceptance-7002f870000f`, with the retained sealed
+runtime at `/opt/p100-lab-acceptance-1fad279-7002f870000f`.
+
+The real GPU case stored two measured samples: median decode 189.42 tokens/s and
+prefill 1062.83 tokens/s. This is a CLI token microbenchmark, not chat latency or
+correctness evidence. No persistent worker service was installed. This acceptance
+does not deploy the worker or publish its database into the dashboard. The
+software-only findings below describe the earlier review boundary.
+
+## Software verification before host acceptance
+
 Software verification on 20 November 2026. The optional administrator transport is not installed, enabled or accepted as a persistent production worker by these checks.
 
 - Linux backend: 189 passed, no skips. Windows: 180 passed, 9 platform skips. One inherited Starlette/httpx deprecation warning remains.

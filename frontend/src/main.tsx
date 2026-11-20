@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import { BenchmarkLab, type Job, type Presets } from "./BenchmarkLab";
 import { NativeBenchmarks } from "./NativeBenchmarks";
+import { readTelemetry } from "./telemetryStream";
 type GPU = {
   index: string;
   name: string;
@@ -20,6 +21,9 @@ type System = {
   disk: { percent: number };
   gpus: { available: boolean; devices: GPU[]; message: string | null };
   sampled_at: string;
+  telemetry_stream?: boolean;
+  sample_sequence?: number;
+  sample_age_ms?: number;
 };
 type Engine = { id: string; unit: string; state: string; note: string };
 type Model = { root: number; name: string; bytes: number };
@@ -51,6 +55,47 @@ function App() {
     [receivedAt, setReceivedAt] = useState<number | null>(null),
     [now, setNow] = useState(Date.now());
   const [refreshSequence, setRefreshSequence] = useState(0);
+  const streaming = useRef(false);
+  const [streamStatus, setStreamStatus] = useState("Polling every 5 seconds");
+  const streamAvailable = data?.system.telemetry_stream === true;
+  useEffect(() => {
+    if (!connected || !streamAvailable) return;
+    let disposed = false, controller: AbortController | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined, wake: (() => void) | undefined;
+    const visibility = () => { controller?.abort(); wake?.(); };
+    document.addEventListener("visibilitychange", visibility);
+    const pause = () => new Promise<void>(resolve => {
+      wake = resolve; timer = setTimeout(resolve, 2_000);
+    }).finally(() => { clearTimeout(timer); wake = undefined; });
+    async function connectStream() {
+      while (!disposed) {
+        if (document.hidden) { await pause(); continue; }
+        controller = new AbortController();
+        setStreamStatus("Connecting live telemetry · polling fallback");
+        try {
+          await readTelemetry<System>(token, controller, system => {
+            if (disposed || controller?.signal.aborted || document.hidden) return;
+            streaming.current = true;
+            setStreamStatus("Streaming updates · about every second");
+            setData(previous => previous ? { ...previous, system } : previous);
+            const received = Date.now() - (system.sample_age_ms || 0);
+            setReceivedAt(received); setNow(Date.now());
+          });
+        } catch { /* Continue the existing polling path while reconnecting. */ }
+        streaming.current = false;
+        if (!disposed) {
+          setStreamStatus("Live stream paused · polling every 5 seconds");
+          await pause();
+        }
+      }
+    }
+    void connectStream();
+    return () => {
+      disposed = true; streaming.current = false;
+      controller?.abort(); clearTimeout(timer); wake?.();
+      document.removeEventListener("visibilitychange", visibility);
+    };
+  }, [connected, streamAvailable, token, refreshSequence]);
   async function api(path: string, signal: AbortSignal) {
     const response = await fetch("/api/" + path, {
       signal,
@@ -102,10 +147,13 @@ function App() {
           throw new Error("Snapshot deadline exceeded");
         }
         if (!disposed) {
-          setData({ system, engines, models, benchmarks, jobs, presets });
-          const received = Date.now();
-          setReceivedAt(received);
-          setNow(received);
+          setData(previous => ({ system: streaming.current && previous ? previous.system : system,
+            engines, models, benchmarks, jobs, presets }));
+          if (!streaming.current) {
+            const received = Date.now() - (system.sample_age_ms || 0);
+            setReceivedAt(received);
+          }
+          setNow(Date.now());
           setError("");
         }
       } catch (e) {
@@ -219,8 +267,8 @@ function App() {
         ) : (
           <>
             <div className="toolbar">
-              <span className="muted">
-                Refresh every 5 seconds ·{" "}
+              <span className="muted" aria-label="Telemetry connection">
+                {streamAvailable ? streamStatus : "Polling every 5 seconds"} ·{" "}
                 {data
                   ? new Date(data.system.sampled_at).toLocaleString()
                   : "Waiting for host"}

@@ -5,6 +5,7 @@ An Ubuntu-first, open-source observation and benchmarking foundation for native 
 ## Delivered foundation
 
 - Authenticated CPU/RAM, database-disk and NVIDIA GPU telemetry; graceful operation without GPUs.
+- Shared, approximately once-per-second authenticated telemetry stream with polling fallback; see [live telemetry](docs/LIVE_TELEMETRY.md).
 - Clearly labelled simulated telemetry for Windows development (`LAB_TELEMETRY=mock`). Mock values are never benchmark results.
 - Read-only adapter inventory for Kmic, PXA and qr0n; bounded GGUF/safetensors file inventory.
 - Manual benchmark recording through the authenticated API and history in the dashboard.
