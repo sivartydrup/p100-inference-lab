@@ -4,6 +4,7 @@ import "./style.css";
 import { BenchmarkLab, type Job, type Presets } from "./BenchmarkLab";
 import { NativeBenchmarks } from "./NativeBenchmarks";
 import { readTelemetry } from "./telemetryStream";
+import { FanMonitoring, type Fans } from "./FanMonitoring";
 type GPU = {
   index: string;
   name: string;
@@ -21,6 +22,7 @@ type System = {
   disk: { percent: number };
   gpus: { available: boolean; devices: GPU[]; message: string | null };
   sampled_at: string;
+  fans?: Fans;
   telemetry_stream?: boolean;
   sample_sequence?: number;
   sample_age_ms?: number;
@@ -197,6 +199,7 @@ function App() {
         <div className="phase">PHASE 02 / FIXTURE LAB</div>
         <nav>
           <a href="#overview">Overview</a>
+          <a href="#fans">Fans</a>
           <a href="#engines">Engine services</a>
           <a href="#models">Model library</a>
           <a href="#history">Benchmark history</a>
@@ -354,6 +357,7 @@ function App() {
                     </p>
                   )}
                 </section>
+                <FanMonitoring fans={data.system.fans} stale={stale} />
                 <section id="engines">
                   <div className="section-title">
                     <h2>Engine services</h2>

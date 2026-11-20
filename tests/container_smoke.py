@@ -77,6 +77,9 @@ def main():
         for path in ("system", "system/stream", "engines", "models", "benchmarks", "benchmark-presets", "benchmark-jobs", "native-benchmarks"):
             assert request("/api/" + path, authenticated=False)[0] == 401
         assert json.loads(request("/api/system")[2])["mode"] == "mock"
+        fans = json.loads(request("/api/system")[2])["fans"]
+        assert fans["source"] == "mock" and fans["controls_enabled"] is False
+        assert fans["devices"][0]["rpm"] == 4200
         # Real HTTP streaming through the production image, not a buffered test client.
         stream_request = urllib.request.Request(url + '/api/system/stream',
                                                headers={'Authorization': 'Bearer ' + token})
@@ -89,6 +92,8 @@ def main():
                     assert value['telemetry_stream'] is True
                     assert value['sample_age_ms'] < 3000
                     assert value['controls_enabled'] is False
+                    assert value['fans']['source'] == 'mock'
+                    assert value['fans']['controls_enabled'] is False
                     return value
             raise AssertionError('Stream did not deliver telemetry')
         with urllib.request.urlopen(stream_request, timeout=10) as first, \
