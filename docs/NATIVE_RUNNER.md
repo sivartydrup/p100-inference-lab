@@ -12,6 +12,14 @@ The implementation is tested with compiled Linux test programs and simulated har
 
 ## Execution boundary
 
+Ubuntu acceptance found that a user unit could report `ProtectSystem=strict` and `ProtectHome=read-only` while those filesystem restrictions were ineffective. Do not enable older host runner releases based on property attestation alone. The runner now requests and attests `PrivateUsers=yes`, then its child independently checks different user/mount namespace identities, effective NoNewPrivs/seccomp, read-only native artifact mounts and denied IPv4 socket creation before exec. Worker namespace identities are captured in the worker and passed to the child; a private user namespace may deny the child's direct inspection of its parent. Missing or unverifiable protections refuse execution, even after the approval gate opens.
+
+The manual harmless host probe is `python tests/native_systemd_probe.py --directory /PRIVATE/new-probe-directory` using the intended worker environment/account. It compiles a CPU-only marker program, uses the real supervisor and never loads a native engine, CUDA or model. Exit 0 confirms this minimal boundary; exit 2 means acceptance is incomplete or refused, not permission to remove protections. It refuses an existing benchmark unit namespace and creates only a new private evidence directory plus its own bounded transient unit.
+
+On the inspected Ubuntu host, AppArmor logged `unprivileged_userns` capability denials and the mount namespace remained shared; the corrected child refused the program and cleanup was confirmed. Host enforcement acceptance, cancellation/crash recovery and a managed GPU benchmark remain blocked pending a separately reviewed host-isolation solution. No AppArmor policy, global sysctl or existing service was changed. Do not disable AppArmor or lower isolation checks as a workaround.
+
+See the [systemd 255 execution documentation](https://www.freedesktop.org/software/systemd/man/255/systemd.exec.html): some namespace protections may be unavailable or silently ineffective, especially in user services. Configured property values do not establish effective kernel enforcement.
+
 Use a non-root Linux account with a working systemd user manager and delegated cgroup memory/CPU/process controllers. Ubuntu 24.04's systemd 255 is the target. User namespace/mount hardening must be supported. Missing capabilities fail closed; do not remove properties to make a run start. Nothing installs/enables a service, changes user lingering, runs sudo, restarts Docker, or alters existing native services, SSH, Netdata, CUDA or drivers.
 
 Three explicit gates apply: `LAB_ENABLE_NATIVE_RUNNER=true` in the host CLI environment, a registry with `enabled: true`, and a preset with `reviewed: true`. The shipped example has all execution disabled and contains no usable presets. The web token grants no native execution capability.

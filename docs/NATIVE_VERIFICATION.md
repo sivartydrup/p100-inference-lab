@@ -1,5 +1,17 @@
 # Native runner verification
 
+## Ubuntu enforcement acceptance, 20 November 2026
+
+A real non-root systemd 255 user-unit probe ran a harmless private compiled CPU program, with no native engine/model/GPU execution. The original property gate accepted a unit whose requested read-only filesystem protection was ineffective: a test program created an empty file in its own private test directory. Cleanup was confirmed. This invalidates treating the older property-only unit test as host enforcement acceptance.
+
+The correction requests/attests PrivateUsers and independently checks effective user/mount namespaces, NoNewPrivs, seccomp, read-only executable/model/library mounts and denied IPv4 socket creation in the child before native exec. Regression tests cover each missing guarantee, including a valid approval file outside isolation. Reference namespace identities are captured by the worker rather than requiring cross-user-namespace ptrace access.
+
+The reviewed private code copy was tested on Ubuntu: host policy still prevented the required mount isolation, the child returned `Native isolation not confirmed`, the harmless executable's marker was absent, and no transient benchmark units remained. Kernel logs recorded AppArmor `unprivileged_userns` capability denials. No global host configuration or production installation was changed. A reusable manual CPU-only probe is provided at `tests/native_systemd_probe.py`.
+
+This is successful refusal on an unsupported boundary, **not** completed native execution acceptance. Cancellation/descendant cleanup, worker crash/recovery, limits under effective isolation and the real P100 microbenchmark must be accepted after a separately reviewed host-isolation solution. Existing independent resident GPU measurements remain valid for their separate harness; they do not validate this worker.
+
+Correction validation: 160 backend tests passed on Linux; 152 passed on Windows with 8 platform skips. The production Docker build passed. No runtime dependency or HTTP route was added. The inherited Starlette/httpx deprecation warning remains.
+
 Implementation validation on 2026-11-16. This is a software test record, not Ubuntu/P100 deployment acceptance. Native execution ships disabled. No production container, host service, installed engine, driver, CUDA installation, Netdata configuration or SSH configuration was changed.
 
 ## Completed checks

@@ -138,17 +138,18 @@ def test_cancellation_kills_process_group_with_descendant(tmp_path):
         pytest.fail("Fixture descendant survived process-group cancellation")
 
 
-def test_gate_does_not_execute_without_approval_and_clears_environment(tmp_path, artifacts):
+def test_gate_requires_live_worker_and_effective_isolation_before_exec(tmp_path, artifacts):
     child = Path(__file__).parents[1] / "lab" / "native_child.py"
     gate = tmp_path / "gate"
     # A dead worker PID fails before an executable can start, even with an approval file.
     gate.write_bytes(b"approved\n")
     cmd=[sys.executable,str(child),"--gate",str(gate),"--worker-pid","2147483647",
-         "--environment",json.dumps(artifacts.environment()),"--",*artifacts.argv()]
+         "--environment",json.dumps(artifacts.environment()),
+         "--namespace-reference",json.dumps({name: os.readlink(f'/proc/self/ns/{name}') for name in ('user','mnt')}),
+         "--",*artifacts.argv()]
     result=subprocess.run(cmd,capture_output=True,timeout=5)
     assert result.returncode != 0 and not result.stdout
-    # A live worker and valid gate can exec the bounded test binary; production only creates
-    # this file after systemd policy attestation (covered separately).
+    # Approval alone must not exec outside effective isolation, even with a live worker.
     cmd[cmd.index("2147483647")] = str(os.getpid())
     gate.unlink()
     process=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env={"PRIVATE_TEST_SECRET":"must-not-inherit"})
@@ -157,7 +158,8 @@ def test_gate_does_not_execute_without_approval_and_clears_environment(tmp_path,
         assert process.poll() is None
         gate.write_bytes(b"approved\n")
         stdout,stderr=process.communicate(timeout=5)
-        assert process.returncode == 0 and b'"samples_ns"' in stdout
+        assert process.returncode != 0 and not stdout
+        assert b'Native isolation not confirmed' in stderr
     finally:
         if process.poll() is None:
             process.kill();process.wait(timeout=5)

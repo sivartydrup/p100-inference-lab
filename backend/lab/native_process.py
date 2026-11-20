@@ -86,6 +86,9 @@ def capture(argv, env, deadline, check=lambda: None, limit=OUTPUT_LIMIT):
 
 
 class SystemdSupervisor:
+    def namespace_reference(self):
+        return {name: os.readlink(f"/proc/self/ns/{name}") for name in ("user", "mnt")}
+
     def __init__(self):
         if os.name != "posix" or not hasattr(os, "geteuid") or os.geteuid() == 0:
             raise NativeError("non_root_linux_user_required")
@@ -137,7 +140,7 @@ class SystemdSupervisor:
         properties = ["KillMode=control-group", "SendSIGKILL=yes", "TimeoutStopSec=2",
                       f"RuntimeMaxSec={runtime_seconds:.3f}", f"MemoryMax={preset.memory_max_mib}M",
                       "TasksMax=64", f"CPUQuota={preset.threads * 100}%", "NoNewPrivileges=yes",
-                      "PrivateTmp=yes", "ProtectSystem=strict", "ProtectHome=read-only",
+                      "PrivateUsers=yes", "PrivateTmp=yes", "ProtectSystem=strict", "ProtectHome=read-only",
                       "RestrictAddressFamilies=AF_UNIX", "UMask=0077", "WorkingDirectory=/"]
         return ["/usr/bin/systemd-run", "--user", "--no-ask-password", "--quiet", "--wait", "--pipe",
                 "--collect", "--service-type=exec", "--expand-environment=no", f"--unit={unit}",
@@ -145,18 +148,19 @@ class SystemdSupervisor:
                 "PATH=/usr/bin:/bin", "LANG=C.UTF-8", sys.executable,
                 str(Path(__file__).with_name("native_child.py")), "--gate", str(gate),
                 "--worker-pid", str(os.getpid()), "--environment", json.dumps(preset.environment()),
+                "--namespace-reference", json.dumps(self.namespace_reference()),
                 "--", *preset.argv()]
 
     def attest(self, unit, preset, remaining):
         properties = ("LoadState", "ActiveState", "KillMode", "SendSIGKILL", "NoNewPrivileges",
-                      "PrivateTmp", "ProtectSystem", "ProtectHome", "RestrictAddressFamilies",
+                      "PrivateUsers", "PrivateTmp", "ProtectSystem", "ProtectHome", "RestrictAddressFamilies",
                       "MemoryMax", "TasksMax", "RuntimeMaxUSec", "CPUQuotaPerSecUSec")
         result = self.control("show", unit, *["--property=" + p for p in properties])
         values = dict(line.split("=", 1) for line in result.stdout.decode().splitlines() if "=" in line)
         if values.get("ActiveState") in {"activating", "inactive"} or values.get("LoadState") == "not-found":
             return False
         required = {"LoadState": "loaded", "ActiveState": "active", "KillMode": "control-group",
-                    "SendSIGKILL": "yes", "NoNewPrivileges": "yes", "PrivateTmp": "yes",
+                    "SendSIGKILL": "yes", "NoNewPrivileges": "yes", "PrivateUsers": "yes", "PrivateTmp": "yes",
                     "ProtectSystem": "strict", "ProtectHome": "read-only", "RestrictAddressFamilies": "AF_UNIX"}
         try:
             valid = result.returncode == 0 and all(values.get(k) == v for k, v in required.items())
