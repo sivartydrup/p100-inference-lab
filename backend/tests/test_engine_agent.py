@@ -145,7 +145,7 @@ def test_socket_restart_handles_only_owned_stale_socket():
 def test_managed_selection_stages_only_when_stopped_and_start_rechecks_file(controller, tmp_path):
     approved = tmp_path / 'approved.gguf'
     approved.write_bytes(b'GGUF')
-    settings = {'context': 4096, 'batch': 512, 'ubatch': 128}
+    settings = {'context': 262144, 'batch': 2048, 'ubatch': 2048}
     controller.models = ManagedModels({
         'engine_version': 'fixture', 'gpu': 'P100', 'models': [{
             'id': 'fixture', 'name': 'Fixture', 'quantization': 'Q6_K', 'bytes': 4, 'sha256': 'a' * 64,
@@ -168,7 +168,7 @@ def test_managed_selection_stages_only_when_stopped_and_start_rechecks_file(cont
         assert acknowledged['configured_selection'] == controller.models.read()
         original = controller.models.path.read_bytes()
         for invalid in ({**body, 'confirmed': 1}, {**body, 'model_id': '/etc/passwd'},
-                        {**body, 'settings': {**settings, 'context': 8192}}):
+                        {**body, 'settings': {**settings, 'context': 262145}}):
             with pytest.raises(ValueError):
                 controller.perform('stage_selection', invalid)
         assert controller.models.path.read_bytes() == original

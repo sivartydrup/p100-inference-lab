@@ -8,7 +8,7 @@ from typing import Literal
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
-from .profile_settings import validate_settings
+from .profile_settings import LIMITS, validate_settings
 
 MAX_PROFILES = 128
 
@@ -18,9 +18,9 @@ class StrictInput(BaseModel):
 
 
 class Settings(StrictInput):
-    context: int = Field(ge=512, le=131072)
-    batch: int = Field(ge=32, le=4096)
-    ubatch: int = Field(ge=32, le=2048)
+    context: int = Field(ge=LIMITS["context"][0], le=LIMITS["context"][1])
+    batch: int = Field(ge=LIMITS["batch"][0], le=LIMITS["batch"][1])
+    ubatch: int = Field(ge=LIMITS["ubatch"][0], le=LIMITS["ubatch"][1])
 
     @model_validator(mode="after")
     def ordered(self):
