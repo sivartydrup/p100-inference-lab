@@ -1,5 +1,12 @@
 # Security and planned control boundary
 
+The optional [fixed Kmic agent](docs/ENGINE_AGENT.md) adds service control after
+separate host installation/review. A non-root host process exposes only a private
+authenticated Unix socket and four operations on one pinned unit. A distinct
+engine control token is required in addition to API authentication. Base
+deployment remains management-disabled; no systemd/Docker bus enters the API.
+Host installation and acceptance are not performed by this change.
+
 The [measured-history importer](docs/MEASURED_HISTORY.md) is a local operator command, not a web upload/execute endpoint. Its strict bounded schema and converter reject ambiguous, inconsistent and non-finite evidence, strip paths/argv/content/credentials, recompute summaries and append only terminal records. These are operator assertions identified by hashes, not authenticated hardware attestations. The API reads a separately published native snapshot through an optional read-only mount, with no source-database write access. All existing bearer authentication and disabled management routes remain in force. No runner is enabled and no driver, power or boot service is changed by import/publish. The unpatched picomatch advisory remains in the raw audit report. A proposed exception accepts only its exact development-only version chain until 2026-11-25T00:00:00Z; new high/critical advisories, version/path changes, production exposure or expiry fail. The independent production audit remains strict at the high-severity threshold. Review this explicit risk acceptance before merging.
 
 All `/api/*` routes require a randomly generated bearer token (at least 32 characters). `/healthz` and static UI assets are public. Authentication uses constant-time comparison; no browser cookies or CORS are enabled. Token stays only in React memory and clears on reload/disconnect. API responses disable caching. Never put credentials in URLs, source control, browser storage or frontend build variables. Rotate the token file and recreate the container; open tabs must reconnect with the new token.
@@ -8,7 +15,7 @@ The requested http://192.168.0.188:3000 endpoint is for a trusted isolated LAN o
 
 ## Phase 1 boundary
 
-No engine/model control is implemented. The reserved typed control route returns 403 even if LAB_ENABLE_CONTROLS is set. No process startup on app boot, downloads, shell interpretation, arbitrary command/executable/URL/unit/preset input, Docker socket, sudo or host service bus mount exists. The only subprocess calls are fixed argument arrays for read-only nvidia-smi and native user-service status. Native services remain outside Docker; Netdata and SSH are independent.
+In the base deployment the typed control route returns 403 even if LAB_ENABLE_CONTROLS is set. No native process starts on app boot, and no downloads, shell interpretation, arbitrary command/executable/URL/unit/preset input, Docker socket, sudo or host service bus mount exists. Base telemetry subprocesses use fixed argument arrays for read-only nvidia-smi and service status. The separately installed optional agent above is the only new service-control path. Native services remain outside Docker; Netdata and SSH are independent.
 
 Container runs UID 10001 with no capabilities, no-new-privileges, read-only root and writable data/tmp only. Host proc read-only mount and optional NVIDIA utility devices expose host metadata, so a compromised container remains a risk; this is not a sandbox for untrusted code. Container secret files are local bind mounts, not an encrypted secret vault. Trusted local accounts/filesystems required; inventory symlink avoidance is not protection against concurrent malicious path replacement.
 

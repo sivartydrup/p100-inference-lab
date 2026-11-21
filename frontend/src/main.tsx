@@ -5,6 +5,7 @@ import { BenchmarkLab, type Job, type Presets } from "./BenchmarkLab";
 import { NativeBenchmarks } from "./NativeBenchmarks";
 import { readTelemetry } from "./telemetryStream";
 import { FanMonitoring, type Fans } from "./FanMonitoring";
+import { EngineServices, type Engine } from "./EngineServices";
 type GPU = {
   index: string;
   name: string;
@@ -27,7 +28,6 @@ type System = {
   sample_sequence?: number;
   sample_age_ms?: number;
 };
-type Engine = { id: string; unit: string; state: string; note: string };
 type Model = { root: number; name: string; bytes: number };
 type Bench = {
   id: number;
@@ -358,52 +358,8 @@ function App() {
                   )}
                 </section>
                 <FanMonitoring fans={data.system.fans} stale={stale} />
-                <section id="engines">
-                  <div className="section-title">
-                    <h2>Engine services</h2>
-                    <span className="badge">
-                      {data.engines.controls_enabled
-                        ? "CONTROLS ENABLED"
-                        : "READ ONLY"}
-                    </span>
-                  </div>
-                  <div className="engine-grid">
-                    {data.engines.items.map((e) => (
-                      <article key={e.id}>
-                        <div className="section-title">
-                          <h3>
-                            {e.id === "kmic"
-                              ? "Kmic"
-                              : e.id === "pxa"
-                                ? "PXA"
-                                : "qr0n"}
-                          </h3>
-                          <span
-                            className={
-                              e.state === "active" ? "state active" : "state"
-                            }
-                          >
-                            {e.state}
-                          </span>
-                        </div>
-                        <code>{e.unit}</code>
-                        <p className="muted">{e.note}</p>
-                        <div className="actions">
-                          {["start", "stop"].map((action) => (
-                            <button
-                              className="secondary"
-                              key={action}
-                              disabled
-                              title="Engine controls are planned for a later phase"
-                            >
-                              {action}
-                            </button>
-                          ))}
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                </section>
+                <EngineServices items={data.engines.items} controlsEnabled={data.engines.controls_enabled}
+                  token={token} stale={stale} refresh={() => setRefreshSequence(value => value + 1)} />
                 <section id="models">
                   <h2>Model library</h2>
                   <p className="muted">

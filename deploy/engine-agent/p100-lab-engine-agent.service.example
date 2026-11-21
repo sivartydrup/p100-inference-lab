@@ -1,0 +1,38 @@
+# Operator must verify account, runtime, unit hash and credential paths first.
+[Unit]
+Description=P100 lab fixed Kmic service agent
+Requires=user@1000.service
+Wants=network-online.target
+After=user@1000.service network-online.target
+
+[Service]
+Type=simple
+User=trav
+Group=10001
+ExecStart=/opt/p100-lab-engine-agent/venv/bin/python -I -m lab.engine_agent --config /etc/p100-lab/engine-agent/config.json
+RuntimeDirectory=p100-lab-engine-agent
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+UMask=0007
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+# GPU availability preflight needs the existing NVIDIA utility device access.
+PrivateDevices=no
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryMax=128M
+TasksMax=32
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

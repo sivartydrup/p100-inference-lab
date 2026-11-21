@@ -1,0 +1,8 @@
+{
+  "unit_file": "/home/trav/.config/systemd/user/kmic-qwen27b.service",
+  "unit_sha256": "REPLACE_WITH_REVIEWED_UNIT_SHA256",
+  "endpoint": "http://192.168.0.188:8080",
+  "upstream_token_file": "/home/trav/.config/kmic-qwen27b/api-key",
+  "ipc_token_file": "/etc/p100-lab/engine-agent/ipc-token",
+  "model_label": "Qwen3.8 27B Q6_K"
+}
