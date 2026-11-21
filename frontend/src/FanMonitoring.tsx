@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 export type Fans = {
   available: boolean;
   source: "hwmon" | "mock";
@@ -9,6 +11,9 @@ export type Fans = {
 };
 
 export function FanMonitoring({ fans, stale }: { fans?: Fans; stale: boolean }) {
+  const [showZero, setShowZero] = useState(false);
+  const zeroCount = fans?.devices.filter(fan => fan.rpm === 0).length || 0;
+  const visibleFans = fans?.devices.filter(fan => showZero || fan.rpm !== 0) || [];
   return <section id="fans" aria-label="Fan monitoring">
     <div className="section-title">
       <h2>Fan monitoring</h2>
@@ -21,8 +26,16 @@ export function FanMonitoring({ fans, stale }: { fans?: Fans; stale: boolean }) 
     <p className={fans?.available ? "muted" : "empty"}>
       {fans?.message || "Fan monitoring is not reported by this API version."}
     </p>
-    {Boolean(fans?.devices.length) && <div className="gpu-grid">
-      {fans!.devices.map(fan => <article key={fan.id}>
+    {zeroCount > 0 && <div className="section-title">
+      <span className="muted">{zeroCount} zero-RPM {zeroCount === 1 ? "input" : "inputs"} {showZero ? "shown" : "hidden"}</span>
+      <button className="secondary" aria-pressed={showZero} onClick={() => setShowZero(value => !value)}>
+        {showZero ? "Hide zero-RPM inputs" : "Show zero-RPM inputs"}
+      </button>
+    </div>}
+    {zeroCount > 0 && !showZero && visibleFans.length === 0 &&
+      <p className="empty">No rotating fans reported. Use “Show zero-RPM inputs” to inspect the readings.</p>}
+    {visibleFans.length > 0 && <div className="gpu-grid">
+      {visibleFans.map(fan => <article key={fan.id}>
         <small>{fan.controller} · {fan.device}</small>
         <h3>{fan.channel}</h3>
         <p className="fan-rpm">{fan.rpm === null ? "Unavailable" : fan.rpm.toLocaleString() + " RPM"}</p>

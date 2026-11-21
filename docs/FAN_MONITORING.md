@@ -25,6 +25,14 @@ rotation was reported; it can also indicate an unused input or missing tachomete
 signal, so the UI does not declare a fan failure. Sensor-channel labels do not
 claim verified motherboard headers or GPU assignments.
 
+Zero-RPM inputs are hidden by default to reduce unused-header clutter. A
+“Show zero-RPM inputs” toggle reveals them without changing sensor collection or
+hardware settings. Filtering uses each latest reading, so a newly connected fan
+appears automatically once it reports positive RPM, and an input reporting zero
+is hidden again unless the toggle is on. Unreadable inputs remain visible as
+unavailable. The display preference lasts for the mounted panel only; it does not
+change API data, hide inputs permanently or persist browser credentials.
+
 Fan data inherits the existing stream cadence and stale warnings. Some monitoring
 chips refresh more slowly than the UI; a new stream frame is not proof of a new
 hardware conversion. A stale sample explicitly says current speeds are unknown.
