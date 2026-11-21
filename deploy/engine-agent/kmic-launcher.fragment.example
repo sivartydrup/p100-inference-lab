@@ -1,0 +1,8 @@
+# Reviewed replacement excerpt for the existing user unit, NOT a drop-in.
+# Retain all existing Unit/Install directives, address wait, working directory,
+# restart policy and security/resource settings. Review paths before installation.
+[Service]
+EnvironmentFile=/var/lib/p100-lab-engine-agent/selection.env
+# The launcher replaces itself with the existing executable in this unit's cgroup.
+# In the actual fragment replace the original ExecStart line, rather than appending another one.
+ExecStart=/opt/p100-lab-engine-agent/venv/bin/python -I -m lab.kmic_launcher --config /etc/p100-lab/engine-agent/config.json --binary /home/trav/inference/kmic-p100/build-p100/bin/llama-server --host 192.168.0.188 --port 8080 --api-key-file /home/trav/.config/kmic-qwen27b/api-key

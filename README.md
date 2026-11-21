@@ -79,7 +79,7 @@ backend\.venv\Scripts\python.exe tests/container_smoke.py
 
 CI runs backend tests, browser tests, frontend build/audit and the Linux container smoke test. Real server/GPU acceptance is manual and separate from mock tests.
 
-Read [architecture](docs/ARCHITECTURE.md), [security/control design](SECURITY.md), [roadmap](docs/ROADMAP.md), [dependency licenses](docs/LICENSES.md) and [contributing](CONTRIBUTING.md).
+Read [architecture](docs/ARCHITECTURE.md), [security/control design](SECURITY.md), [roadmap](docs/ROADMAP.md), [dependency licenses](docs/LICENSES.md), [Flash Next Fast/Reasoning profiles](docs/FLASH_NEXT_PROFILES.md) and [contributing](CONTRIBUTING.md).
 
 ## License
 

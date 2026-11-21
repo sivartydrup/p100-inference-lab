@@ -1,0 +1,69 @@
+{
+  "tested_on": "2026-11-21",
+  "engine_binary_sha256": "aa6e5c2ecf13ccfb00024ed594205f0efddfe3c84dbcb05092eb1f9a9705bafc",
+  "hf_revision": "f5d175de2cf7f720d45d6064019a81fcf056e986",
+  "power_limit_w": 150,
+  "cutoff_c": 75,
+  "main_bytes": 83626438426,
+  "draft_bytes": 2786204800,
+  "comparisons": [
+    {
+      "profile": "balanced20-none",
+      "median_decode_tps": 24.44794788146131,
+      "screen_wall_seconds": 46.38005989300291
+    },
+    {
+      "profile": "balanced20-mtp-1",
+      "median_decode_tps": 30.372762601435813,
+      "screen_wall_seconds": 41.489512734005984
+    },
+    {
+      "profile": "balanced20-mtp-2",
+      "median_decode_tps": 35.074507587476646,
+      "screen_wall_seconds": 38.401635884001735
+    },
+    {
+      "profile": "balanced20-mtp-3",
+      "median_decode_tps": 32.31866127345593,
+      "screen_wall_seconds": 40.32748832499783
+    },
+    {
+      "profile": "balanced20-agentic",
+      "median_decode_tps": 33.096980773061226,
+      "screen_wall_seconds": 38.60673232800036
+    }
+  ],
+  "gpu_peaks": {
+    "GPU-72a2ed21-0710-1c2a-380c-1e95908cbbb1": {
+      "temperature_c": 45.0,
+      "power_w": 152.41,
+      "memory_mib": 15115.0
+    },
+    "GPU-78f1deb3-caee-af0c-cd4a-b2f986801bac": {
+      "temperature_c": 39.0,
+      "power_w": 152.5,
+      "memory_mib": 14711.0
+    }
+  },
+  "oh_my_pi": {
+    "validated": {
+      "passed": true,
+      "agent_exit_code": 0,
+      "agent_wall_seconds": 41.92200000002049,
+      "tests_exit_code": 0
+    },
+    "reasoning": {
+      "passed": true,
+      "agent_exit_code": 0,
+      "agent_wall_seconds": 61.65599999995902,
+      "tests_exit_code": 0
+    }
+  },
+  "limitations": [
+    "Single-slot, 32K context capacity; no full-32K coding-quality assessment.",
+    "Five-minute sustained dialogue was non-thinking with complete short replies.",
+    "Reasoning passed a small coding smoke test with a 1024-token reasoning budget.",
+    "Sampled power can briefly exceed requested limits; both limits stayed at 150W.",
+    "Previous truncated-history validation failed; corrected harness passed both control and MTP."
+  ]
+}

@@ -187,3 +187,16 @@ def test_managed_selection_stages_only_when_stopped_and_start_rechecks_file(cont
         with pytest.raises(ValueError):
             controller.perform('start')
         preflight.assert_called_once()
+
+
+def test_flash_catalog_refuses_old_native_unit_even_with_matching_digest(controller, tmp_path):
+    from test_kmic_profiles import fixture_catalog
+    controller.models = ManagedModels(fixture_catalog(tmp_path), tmp_path / 'selection.env')
+    controller.unit_file.write_text(f'[Service]\nEnvironmentFile={STATE_FILE}\nExecStart=/old/native-server\n')
+    controller.digest = hashlib.sha256(controller.unit_file.read_bytes()).hexdigest()
+    assert not controller.trusted_unit()
+    with patch.object(controller, 'run', return_value=properties(controller, NeedDaemonReload='no', Job='')):
+        with pytest.raises(RuntimeError):
+            controller.perform('stage_selection', {'model_id': next(iter(controller.models.entries)),
+                                                  'settings': {'context': 32768, 'batch': 1024, 'ubatch': 512},
+                                                  'confirmed': True})

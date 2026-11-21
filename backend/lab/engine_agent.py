@@ -23,6 +23,7 @@ import threading
 from urllib.parse import urlsplit
 import urllib.request
 from .managed_models import ManagedModels, STATE_FILE
+from .kmic_profiles import FLASH
 
 UNIT = 'kmic-qwen27b.service'
 OPERATIONS = {'status', 'start', 'stop', 'enable_boot', 'disable_boot'}
@@ -77,6 +78,9 @@ class Controller:
         if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o022:
             return False
         contents = self.unit_file.read_bytes()
+        if (self.models is not None and any(entry.get('runtime') in FLASH for entry in self.models.entries.values())
+                and b'-m lab.kmic_launcher ' not in contents):
+            return False
         return (hashlib.sha256(contents).hexdigest() == self.digest and
                 (self.models is None or f'EnvironmentFile={STATE_FILE}'.encode() in contents.splitlines()))
 
@@ -196,7 +200,7 @@ class Controller:
         rows = [[float(value.strip()) for value in row.split(',')] for row in result.stdout.splitlines()]
         if (len(rows) != 2 or any(len(row) != 3 or any(not math.isfinite(v) for v in row) for row in rows) or
                 any(free < 14000 or load >= 10 or temp >= 75 for free, load, temp in rows)):
-            raise RuntimeError('Both GPUs must be available before starting this fixed 27B preset')
+            raise RuntimeError('Both GPUs must be available before starting the configured Kmic profile')
 
 
 class Handler(socketserver.StreamRequestHandler):

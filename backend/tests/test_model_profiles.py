@@ -65,3 +65,20 @@ def test_staging_requires_confirmation_and_both_credentials(tmp_path):
         agent.assert_called_once_with("/engine-agent/agent.sock", IPC, "stage_selection", body)
     with sqlite3.connect(tmp_path / "lab.db") as connection:
         assert connection.execute("SELECT action,outcome FROM audit").fetchall() == [("stage_selection", "accepted")]
+
+
+def test_reviewed_flash_presets_record_recipe_and_require_exact_settings(tmp_path):
+    values = {"context": 32768, "batch": 1024, "ubatch": 512}
+    model = {**CATALOG_ENTRY, "limits": values, "initial": values,
+             "recipe": {"id": "flash-next-fast-v1", "sha256": "c" * 64}}
+    body = {"model_id": MODEL_ID, "name": "Fast coding", "settings": values}
+    with TestClient(create_app(settings(tmp_path))) as client, patch(
+        "lab.main.engine_exchange", return_value={"catalog": [model]},
+    ):
+        assert client.post("/api/model-presets", headers=AUTH, json={
+            **body, "settings": {**values, "context": 16384},
+        }).status_code == 422
+        saved = client.post("/api/model-presets", headers=AUTH, json=body)
+        assert saved.status_code == 201
+        assert saved.json()["environment"]["recipe_id"] == "flash-next-fast-v1"
+        assert saved.json()["environment"]["recipe_sha256"] == "c" * 64
