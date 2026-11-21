@@ -45,16 +45,19 @@ def test_presets_are_persistent_and_default_is_transactional(tmp_path):
 
 
 def test_staging_requires_confirmation_and_both_credentials(tmp_path):
-    body = {"model_id": MODEL_ID, "settings": VALUES, "confirmed": True}
+    live_settings = {"context": 262144, "batch": 2048, "ubatch": 2048}
+    body = {"model_id": MODEL_ID, "settings": live_settings, "confirmed": True}
     path = "/api/engines/kmic/selection"
     acknowledgment = {"accepted": True, "operation": "stage_selection", "unit": "kmic-qwen27b.service",
-                      "configured_selection": {"model_id": MODEL_ID, "settings": VALUES}}
+                      "configured_selection": {"model_id": MODEL_ID, "settings": live_settings}}
     with TestClient(create_app(settings(tmp_path))) as client, patch(
         "lab.main.engine_exchange", return_value=acknowledgment,
     ) as agent:
         assert client.post(path, json=body).status_code == 401
         assert client.post(path, json=body, headers=AUTH).status_code == 403
         assert client.post(path, json={**body, "confirmed": False}, headers=ADMIN).status_code == 422
+        assert client.post(path, json={**body, "settings": {**live_settings, "context": 262145}},
+                           headers=ADMIN).status_code == 422
         assert client.post(path, json={**body, "path": "/etc/passwd"}, headers=ADMIN).status_code == 422
         assert client.post(path.replace("kmic", "pxa"), json=body, headers=ADMIN).status_code == 403
         agent.assert_not_called()

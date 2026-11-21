@@ -1,9 +1,10 @@
 """Small shared parameter contract for the API and dependency-free host agent."""
 
-LIMITS = {"context": (512, 131072), "batch": (32, 4096), "ubatch": (32, 2048)}
+LIMITS = {"context": (512, 262144), "batch": (32, 4096), "ubatch": (32, 2048)}
 
 
-def validate_settings(settings, max_context=131072, max_batch=4096, max_ubatch=2048):
+def validate_settings(settings, max_context=LIMITS["context"][1], max_batch=LIMITS["batch"][1],
+                      max_ubatch=LIMITS["ubatch"][1]):
     if not isinstance(settings, dict) or settings.keys() != LIMITS.keys():
         raise ValueError("Expected context, batch and microbatch")
     for (field, (minimum, _)), maximum in zip(LIMITS.items(), (max_context, max_batch, max_ubatch)):
