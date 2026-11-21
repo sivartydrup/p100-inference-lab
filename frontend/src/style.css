@@ -285,6 +285,10 @@ code {
 .model-digest {
   overflow-wrap: anywhere;
 }
+.client-settings {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .engine-grid dd {
   overflow-wrap: anywhere;
   min-width: 0;

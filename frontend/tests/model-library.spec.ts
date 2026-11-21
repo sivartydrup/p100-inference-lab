@@ -107,4 +107,8 @@ test('reviewed fast and reasoning profiles export distinct client settings witho
     expect(raw).not.toContain(token);
     expect(raw).not.toContain('/home/trav');
   }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await library.getByText('Client request settings', { exact: true }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/flash-next-profiles-mobile.png', fullPage: true });
 });

@@ -165,7 +165,7 @@ function ProfileEditor({ model, presets, canStage, stage, token, stale, refresh 
       <button className="secondary" onClick={() => downloadClientProfile(model.recipe!)}>Download Oh My Pi preset</button>
       <p>Merge the downloaded fragment into your Oh My Pi models.yml. Set its inference API key and check the server address.
         Use the selected profile’s served model alias. The dashboard access token is a separate credential.</p>
-      <details><summary>Client request settings</summary><pre>{JSON.stringify(model.recipe.client_settings, null, 2)}</pre></details>
+      <details><summary>Client request settings</summary><pre className="client-settings">{JSON.stringify(model.recipe.client_settings, null, 2)}</pre></details>
     </div>}
     <label className="model-fields">Load preset <select value={chosen?.id ?? 0} onChange={event => usePreset(Number(event.target.value))} disabled={busy || pending}>
       <option value={0}>Catalog starting values</option>
