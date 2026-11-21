@@ -23,6 +23,7 @@ from . import jobs
 from . import native_store
 from .native_config import NativeError
 from .engine_bridge import exchange as engine_exchange, EngineUnavailable
+from . import model_profiles
 
 
 class Benchmark(BaseModel):
@@ -90,6 +91,7 @@ def create_app(config=None):
                     id INTEGER PRIMARY KEY, created_at TEXT NOT NULL,
                     engine TEXT NOT NULL, action TEXT NOT NULL, outcome TEXT NOT NULL);
             """)
+            model_profiles.initialize(conn)
         try:
             yield
         finally:
@@ -178,33 +180,71 @@ def create_app(config=None):
             items[0] = kmic
         return {"items": items, "controls_enabled": controls}
 
-    @app.post("/api/engines/{engine}/control", dependencies=auth)
-    def control(engine: Literal["kmic", "pxa", "qr0n"], request: Control,
-                x_lab_engine_token: str | None = Header(default=None)):
+    def authorize_engine(engine, x_lab_engine_token):
         if engine != 'kmic' or not controls or not agent_configured:
             raise HTTPException(403, 'Engine controls are disabled')
         if (not x_lab_engine_token or len(x_lab_engine_token) > 512 or
                 not hmac.compare_digest(x_lab_engine_token.encode(), engine_token.encode())):
             raise HTTPException(403, 'A separate engine control token is required')
+
+    def mutate_engine(engine, action, selection=None):
         outcome = 'accepted'
         try:
-            result = engine_exchange(agent_socket, ipc_token, request.action)
-            if (result.get('accepted') is not True or result.get('operation') != request.action or
+            args = (agent_socket, ipc_token, action)
+            result = engine_exchange(*args) if selection is None else engine_exchange(*args, selection)
+            if (result.get('accepted') is not True or result.get('operation') != action or
                     result.get('unit') != 'kmic-qwen27b.service'):
                 raise EngineUnavailable('Invalid action acknowledgement')
+            if selection is not None and result.get('configured_selection') != {
+                key: selection[key] for key in ('model_id', 'settings')
+            }:
+                raise EngineUnavailable('Invalid selection acknowledgement')
         except EngineUnavailable:
             outcome = 'unknown_or_refused'
             result = None
         with sqlite3.connect(db) as connection:
             connection.execute('INSERT INTO audit(created_at,engine,action,outcome) VALUES(?,?,?,?)',
-                               (datetime.now(timezone.utc).isoformat(), engine, request.action, outcome))
+                               (datetime.now(timezone.utc).isoformat(), engine, action, outcome))
         if result is None:
             raise HTTPException(503, 'Engine action refused or outcome unknown. Refresh status before trying again.')
         return result
 
+    @app.post("/api/engines/{engine}/control", dependencies=auth)
+    def control(engine: Literal["kmic", "pxa", "qr0n"], request: Control,
+                x_lab_engine_token: str | None = Header(default=None)):
+        authorize_engine(engine, x_lab_engine_token)
+        return mutate_engine(engine, request.action)
+
+    @app.post("/api/engines/{engine}/selection", dependencies=auth)
+    def stage_selection(engine: Literal["kmic", "pxa", "qr0n"], request: model_profiles.Selection,
+                        x_lab_engine_token: str | None = Header(default=None)):
+        authorize_engine(engine, x_lab_engine_token)
+        return mutate_engine(engine, 'stage_selection', request.model_dump())
+
     @app.get("/api/models", dependencies=auth)
     def models():
-        return inventory(roots)
+        return {**inventory(roots), "presets": model_profiles.list_presets(db)}
+
+    @app.post("/api/model-presets", dependencies=auth, status_code=201)
+    def save_model_preset(request: model_profiles.Preset):
+        if not agent_configured:
+            raise HTTPException(409, "The approved model catalog is not configured")
+        try:
+            status = engine_exchange(agent_socket, ipc_token, 'status')
+        except EngineUnavailable:
+            raise HTTPException(503, "The approved model catalog is unavailable") from None
+        model = next((item for item in status.get('catalog', []) if item["id"] == request.model_id), None)
+        if model is None:
+            raise HTTPException(422, "Model is not approved for Kmic")
+        return model_profiles.save(db, request, model)
+
+    @app.put("/api/model-presets/{preset_id}/default", dependencies=auth, status_code=204)
+    def default_model_preset(preset_id: int):
+        model_profiles.set_default(db, preset_id)
+
+    @app.delete("/api/model-presets/{preset_id}", dependencies=auth, status_code=204)
+    def delete_model_preset(preset_id: int):
+        model_profiles.delete(db, preset_id)
 
     @app.get("/api/benchmarks", dependencies=auth)
     def benchmarks(limit: int = Query(default=50, ge=1, le=200)):

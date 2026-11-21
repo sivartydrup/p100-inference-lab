@@ -3,6 +3,9 @@
 The optional host agent observes and controls exactly `kmic-qwen27b.service` in
 the existing engine account's user manager. The base dashboard stays read-only.
 The agent and Compose overlay are not installed or enabled automatically.
+An optional host catalog and stopped-service next-start configuration are
+documented in [Model library and Kmic profiles](MODEL_LIBRARY.md). The controls
+described below are the default for the existing static unit.
 
 Read-only host inspection on 21 November 2026 found this service active and
 enabled, with its authenticated model endpoint reporting `qwen3.8-27b-p100` and
@@ -19,7 +22,7 @@ responses are bounded, model paths are reduced to basenames, and raw service
 output, credentials and prompts never enter the dashboard. A configured model
 label is distinct from the server-reported loaded model.
 
-Only start, stop, enable_boot and disable_boot are permitted. Start/stop submit
+The static unit supports start, stop, enable_boot and disable_boot. Start/stop submit
 nonblocking systemd jobs: acceptance is not completion or model readiness. Boot
 changes do not start/stop the current process. Stop confirmation warns about
 interrupting inference. Readiness, model and service state are shown separately.
@@ -67,7 +70,7 @@ complete after disconnect. Refresh status before retrying.
 
 Root and the engine account remain trusted. The native engine already runs as
 that user, so this is not isolation against its compromise. A compromised API
-holding the private IPC key can invoke these four fixed actions; the host agent
+holding the private IPC key can invoke enabled fixed actions; the host agent
 deliberately offers no general management channel.
 
 ## Installation and acceptance boundary

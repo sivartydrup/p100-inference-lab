@@ -12,19 +12,33 @@ FIXTURE = r'''
 import os
 from pathlib import Path
 from lab.engine_agent import Server,UNIT
+from lab.managed_models import ManagedModels
 p=Path('/data')
 for name,variable in [('ipc','IPC'),('control','CONTROL')]:
  (p/name).write_text(os.environ[variable]); (p/name).chmod(0o600)
+params={'context':4096,'batch':512,'ubatch':128}
+model=Path('/tmp/synthetic.gguf')
+model.write_bytes(b'GGUF')
+catalog=ManagedModels({'engine_version':'synthetic','gpu':'P100','models':[{
+ 'id':'synthetic','name':'Synthetic acceptance fixture','bytes':4,'sha256':'a'*64,
+ 'quantization':'Q6_K','alias':'synthetic-qwen27b','path':str(model),'initial':params,'limits':params,
+}]},Path('/tmp/selection.env'))
 class Fixture:
  ipc_key=os.environ['IPC']
  state='active'
  boot=True
- def perform(self,operation):
+ def perform(self,operation,selection=None):
   if operation=='status':
    return {'id':'kmic','unit':UNIT,'state':self.state,'ready':self.state=='active',
     'model':'synthetic-qwen27b' if self.state=='active' else None,
     'configured_model':'Synthetic acceptance fixture','boot_enabled':self.boot,
-    'controls_available':True,'note':'Synthetic host-agent fixture'}
+    'controls_available':True,'note':'Synthetic host-agent fixture','catalog':catalog.public(),
+    'can_stage':self.state=='inactive',
+    'configured_selection':catalog.read() if catalog.path.exists() else None}
+  if operation=='stage_selection':
+   if self.state!='inactive' or selection['confirmed'] is not True: raise ValueError()
+   selected=catalog.stage(selection['model_id'],selection['settings'])
+   return {'accepted':True,'operation':operation,'unit':UNIT,'configured_selection':selected}
   if operation not in ('start','stop','enable_boot','disable_boot'): raise ValueError()
   if operation in ('start','stop'): self.state='active' if operation=='start' else 'inactive'
   else: self.boot=operation=='enable_boot'
@@ -82,17 +96,28 @@ def main():
         assert request('/api/engines', authenticated=False)[0] == 401
         status, data = request('/api/engines')
         assert status == 200 and data['items'][0]['model'] == 'synthetic-qwen27b'
+        model = data['items'][0]['catalog'][0]
+        assert model['available'] and 'path' not in model
+        preset = {'model_id': model['id'], 'name': 'Smoke profile', 'settings': model['initial'], 'make_default': True}
+        assert request('/api/model-presets', preset)[0] == 201
+        assert request('/api/models')[1]['presets'][0]['is_default'] is True
+        selection = {key: preset[key] for key in ('model_id', 'settings')}
+        stage = '/api/engines/kmic/selection'
+        assert request(stage, {**selection, 'confirmed': True})[0] == 403
+        assert request(stage, {**selection, 'confirmed': True}, admin=True)[0] == 503
         assert request('/api/engines/kmic/control', {'action': 'stop'})[0] == 403
         assert request('/api/engines/kmic/control', {'action': 'start', 'unit': 'sshd'}, admin=True)[0] == 422
         for action, state in [('disable_boot', False), ('enable_boot', True)]:
             assert request('/api/engines/kmic/control', {'action': action}, admin=True)[0] == 200
             assert request('/api/engines')[1]['items'][0]['boot_enabled'] is state
         assert request('/api/engines/kmic/control', {'action': 'stop'}, admin=True)[0] == 200
-        assert request('/api/engines')[1]['items'][0]['model'] is None
+        assert request(stage, {**selection, 'confirmed': True}, admin=True)[0] == 200
+        stopped = request('/api/engines')[1]['items'][0]
+        assert stopped['model'] is None and stopped['configured_selection'] == selection and stopped['boot_enabled']
         assert request('/api/engines/kmic/control', {'action': 'start'}, admin=True)[0] == 200
         assert request('/api/engines')[1]['items'][0]['ready'] is True
         assert request('/api/engines/qr0n/control', {'action': 'start'}, admin=True)[0] == 403
-        print('Engine agent acceptance passed: HTTP/Unix transport, dual authorization, fixed schema, synthetic status/start/stop/boot changes. No host bus, GPU or native engine accessed.')
+        print('Engine agent acceptance passed: HTTP/Unix transport, dual authorization, presets, synthetic staging, start, stop and boot changes.')
     finally:
         for container in (name, agent):
             subprocess.run(['docker', 'rm', '-f', container], capture_output=True)

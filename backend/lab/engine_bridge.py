@@ -7,8 +7,11 @@ class EngineUnavailable(RuntimeError):
     pass
 
 
-def exchange(path, token, operation):
-    request = json.dumps({'token': token, 'operation': operation}).encode() + b'\n'
+def exchange(path, token, operation, selection=None):
+    payload = {'token': token, 'operation': operation}
+    if selection is not None:
+        payload['selection'] = selection
+    request = json.dumps(payload).encode() + b'\n'
     if len(request) > 4096:
         raise EngineUnavailable('Engine agent unavailable')
     try:

@@ -1,41 +1,46 @@
 import { useState } from 'react';
+import { ModelLibrary, type ApprovedModel, type Library, type Selection } from './ModelLibrary';
 
 export type Engine = {
   id: string; unit: string; state: string; note: string;
   ready?: boolean; model?: string | null; configured_model?: string;
   boot_enabled?: boolean; boot_state?: string; controls_available?: boolean;
+  catalog?: ApprovedModel[]; can_stage?: boolean; configured_selection?: Selection | null;
 };
 type Action = 'start' | 'stop' | 'enable_boot' | 'disable_boot';
 
-export function EngineServices({ items, controlsEnabled, token, stale, refresh }: {
-  items: Engine[]; controlsEnabled: boolean; token: string; stale: boolean; refresh: () => void;
+export function EngineServices({ items, controlsEnabled, token, stale, refresh, library }: {
+  items: Engine[]; controlsEnabled: boolean; token: string; stale: boolean; refresh: () => void; library: Library;
 }) {
   const [key, setKey] = useState('');
   const [unlocked, setUnlocked] = useState(false);
   const [pending, setPending] = useState<Action | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [selectionMessage, setSelectionMessage] = useState('');
   const kmic = items.find(item => item.id === 'kmic');
   const permitted = controlsEnabled && kmic?.controls_available === true && unlocked && !stale && !busy;
-  async function execute(action: Action) {
+  async function execute(action: Action | 'selection', selection?: Selection) {
     if (!permitted) return;
-    setBusy(true); setPending(null); setMessage('Sending engine request…');
+    const notify = selection ? setSelectionMessage : setMessage;
+    setBusy(true); setPending(null); notify('Sending engine request…');
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12_000);
     try {
-      const response = await fetch('/api/engines/kmic/control', { method: 'POST', signal: controller.signal,
+      const response = await fetch('/api/engines/kmic/' + (selection ? 'selection' : 'control'), { method: 'POST', signal: controller.signal,
         headers: { Authorization: 'Bearer ' + token, 'X-Lab-Engine-Token': key, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }), cache: 'no-store' });
+        body: JSON.stringify(selection ? { ...selection, confirmed: true } : { action }), cache: 'no-store' });
       if (!response.ok) {
         if (response.status === 403) { setUnlocked(false); setKey(''); }
         throw new Error(response.status === 403 ? 'Control access denied. Check your engine control token.' :
           'Request failed or outcome is unknown. Check refreshed status before trying again.');
       }
-      setMessage(action === 'enable_boot' || action === 'disable_boot'
+      notify(selection ? 'Configuration saved for the next Kmic launch. Check the configured selection in Engine services.'
+        : action === 'enable_boot' || action === 'disable_boot'
         ? 'Boot setting request accepted. The running engine is unchanged; checking status.'
         : 'Service request accepted. Checking status; model loading may take time.');
     } catch (error) {
-      setMessage(error instanceof Error && error.name !== 'AbortError' ? error.message :
+      notify(error instanceof Error && error.name !== 'AbortError' ? error.message :
         'Request timed out; outcome is unknown. Check refreshed status before trying again.');
     } finally { clearTimeout(timer); controller.abort(); setBusy(false); refresh(); }
   }
@@ -45,7 +50,7 @@ export function EngineServices({ items, controlsEnabled, token, stale, refresh }
     enable_boot: 'Automatically start Kmic at future boots? This does not start it now.',
     disable_boot: 'Disable automatic Kmic startup at future boots? This does not stop it now.',
   };
-  return <section id="engines" aria-label="Engine services">
+  return <><section id="engines" aria-label="Engine services">
     <div className="section-title"><h2>Engine services</h2>
       <span className="badge">{controlsEnabled ? 'AUTHENTICATED CONTROLS' : 'READ ONLY'}</span></div>
     {controlsEnabled && <div className="engine-access">
@@ -71,8 +76,14 @@ export function EngineServices({ items, controlsEnabled, token, stale, refresh }
         <p className="muted">{engine.note}</p>
         {managed && <dl>
           <dt>Inference readiness</dt><dd>{stale ? 'Unknown — stale data' : engine.ready ? 'Ready' : 'Not ready'}</dd>
-          <dt>Reported model</dt><dd>{engine.model || 'Not reported'}</dd>
-          {engine.configured_model && <><dt>Configured model</dt><dd>{engine.configured_model}</dd></>}
+          <dt>Reported model</dt><dd>{stale ? 'Unknown (stale)' : engine.model || 'Not reported'}</dd>
+          {engine.catalog ? <>
+            <dt>Configured for next start</dt><dd>{engine.configured_model || 'Unknown or unconfigured'}{stale && ' (stale)'}</dd>
+            {engine.configured_selection && <><dt>Next-start parameters</dt><dd>
+              {engine.configured_selection.settings.context} context · {engine.configured_selection.settings.batch} batch · {engine.configured_selection.settings.ubatch} microbatch
+            </dd></>}
+            <dt>Live parameters</dt><dd>{engine.ready && !stale ? 'Not reported by Kmic' : 'Unknown'}</dd>
+          </> : engine.configured_model && <><dt>Configured model</dt><dd>{engine.configured_model}</dd></>}
           <dt>Automatically start at boot</dt><dd>{engine.boot_enabled === undefined ? 'Unknown' : engine.boot_enabled ? 'Enabled' : 'Disabled'}{stale && ' (stale)'}</dd>
         </dl>}
         <div className="actions">{(['start', 'stop'] as Action[]).map(action => <button className="secondary" key={action}
@@ -83,5 +94,9 @@ export function EngineServices({ items, controlsEnabled, token, stale, refresh }
           {engine.boot_enabled ? 'Disable automatic startup' : 'Enable automatic startup'}</button>}
       </article>;
     })}</div>
-  </section>;
+  </section>
+  <ModelLibrary data={library} catalog={kmic?.catalog} canStage={permitted && kmic?.can_stage === true}
+    stage={selection => void execute('selection', selection)} stageMessage={selectionMessage}
+    token={token} stale={stale} refresh={refresh} />
+  </>;
 }

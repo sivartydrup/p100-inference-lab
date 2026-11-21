@@ -6,6 +6,7 @@ import { NativeBenchmarks } from "./NativeBenchmarks";
 import { readTelemetry } from "./telemetryStream";
 import { FanMonitoring, type Fans } from "./FanMonitoring";
 import { EngineServices, type Engine } from "./EngineServices";
+import type { Library } from "./ModelLibrary";
 type GPU = {
   index: string;
   name: string;
@@ -28,7 +29,6 @@ type System = {
   sample_sequence?: number;
   sample_age_ms?: number;
 };
-type Model = { root: number; name: string; bytes: number };
 type Bench = {
   id: number;
   created_at: string;
@@ -40,7 +40,7 @@ type Bench = {
 type Snapshot = {
   system: System;
   engines: { items: Engine[]; controls_enabled: boolean };
-  models: { items: Model[]; warnings: string[]; truncated: boolean };
+  models: Library;
   benchmarks: { items: Bench[] };
   jobs: { items: Job[] };
   presets: Presets;
@@ -359,48 +359,7 @@ function App() {
                 </section>
                 <FanMonitoring fans={data.system.fans} stale={stale} />
                 <EngineServices items={data.engines.items} controlsEnabled={data.engines.controls_enabled}
-                  token={token} stale={stale} refresh={() => setRefreshSequence(value => value + 1)} />
-                <section id="models">
-                  <h2>Model library</h2>
-                  <p className="muted">
-                    Read-only inventory of configured model roots. Files are
-                    never loaded or modified.
-                  </p>
-                  {data.models.warnings.map((w, i) => (
-                    <p key={i} className="error">
-                      {w}
-                    </p>
-                  ))}
-                  {data.models.truncated && (
-                    <p>Inventory scan limit reached.</p>
-                  )}
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Model file</th>
-                          <th>Root</th>
-                          <th>Size</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.models.items.map((m) => (
-                          <tr key={m.root + ":" + m.name}>
-                            <td>{m.name}</td>
-                            <td>{m.root}</td>
-                            <td>{number(m.bytes / 2 ** 30, " GiB")}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  {!data.models.items.length && (
-                    <p className="empty">
-                      No model files found. Configure LAB_MODEL_ROOTS on the
-                      backend.
-                    </p>
-                  )}
-                </section>
+                  token={token} stale={stale} library={data.models} refresh={() => setRefreshSequence(value => value + 1)} />
                 <section id="history">
                   <div className="section-title">
                     <h2>Benchmark history</h2>

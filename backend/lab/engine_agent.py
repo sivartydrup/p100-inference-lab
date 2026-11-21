@@ -1,6 +1,6 @@
 """Optional non-root host agent for exactly one operator-owned Kmic unit.
 
-No TCP listener, shell, arbitrary argv, downloads, model switches or root commands.
+No TCP listener, shell, arbitrary argv, downloads or root commands.
 Installation and existing-engine changes are separate operator actions.
 """
 import argparse
@@ -22,6 +22,7 @@ import subprocess
 import threading
 from urllib.parse import urlsplit
 import urllib.request
+from .managed_models import ManagedModels, STATE_FILE
 
 UNIT = 'kmic-qwen27b.service'
 OPERATIONS = {'status', 'start', 'stop', 'enable_boot', 'disable_boot'}
@@ -46,7 +47,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 class Controller:
     def __init__(self, config):
         expected = {'unit_file', 'unit_sha256', 'endpoint', 'upstream_token_file', 'ipc_token_file', 'model_label'}
-        if not isinstance(config, dict) or set(config) != expected:
+        if not isinstance(config, dict) or set(config) - {'managed_models'} != expected:
             raise ValueError('Invalid engine configuration')
         self.unit_file = Path(config['unit_file'])
         if not self.unit_file.is_absolute() or self.unit_file.name != UNIT or not re.fullmatch(r'[a-f0-9]{64}', config['unit_sha256']):
@@ -68,12 +69,16 @@ class Controller:
         self.model_label = config['model_label']
         if not isinstance(self.model_label, str) or not 1 <= len(self.model_label) <= 160 or not self.model_label.isprintable():
             raise ValueError('Invalid model label')
+        self.models = ManagedModels(config['managed_models']) if 'managed_models' in config else None
         self.lock = threading.Lock()
 
     def trusted_unit(self):
         info = self.unit_file.lstat()
-        return (stat.S_ISREG(info.st_mode) and not info.st_mode & 0o022 and
-                hashlib.sha256(self.unit_file.read_bytes()).hexdigest() == self.digest)
+        if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o022:
+            return False
+        contents = self.unit_file.read_bytes()
+        return (hashlib.sha256(contents).hexdigest() == self.digest and
+                (self.models is None or f'EnvironmentFile={STATE_FILE}'.encode() in contents.splitlines()))
 
     def run(self, arguments, timeout=4):
         # Fixed executable, unit and allowlisted arguments only; never shell=True.
@@ -96,8 +101,8 @@ class Controller:
         return json.loads(body)
 
     def status(self):
-        properties = dict(line.split('=', 1) for line in self.run(['show', '-p', 'ActiveState', '-p', 'SubState', '-p', 'UnitFileState', '-p', 'FragmentPath', '-p', 'DropInPaths']).splitlines() if '=' in line)
-        trusted = self.trusted_unit() and properties.get('FragmentPath') == str(self.unit_file) and not properties.get('DropInPaths')
+        properties = self.properties('ActiveState', 'UnitFileState', 'FragmentPath', 'DropInPaths', 'NeedDaemonReload', 'Job')
+        trusted = self.matches_unit(properties)
         state = properties.get('ActiveState', 'unavailable')
         if state not in {'active', 'inactive', 'activating', 'deactivating', 'failed'}:
             state = 'unavailable'
@@ -112,36 +117,76 @@ class Controller:
                         model = items[0]['id'].replace('\\', '/').rsplit('/', 1)[-1][:160]
             except (OSError, ValueError, TypeError, AttributeError, KeyError):
                 pass
-        return {'id': 'kmic', 'unit': UNIT, 'state': state, 'ready': ready,
+        result = {'id': 'kmic', 'unit': UNIT, 'state': state, 'ready': ready,
                 'model': model, 'configured_model': self.model_label,
                 'boot_enabled': properties.get('UnitFileState') == 'enabled',
                 'boot_state': properties.get('UnitFileState', 'unknown'),
                 'controls_available': trusted,
                 'note': 'Live host service and authenticated inference-server status.' if trusted else 'Unit configuration changed; controls refused.'}
+        if self.models is not None:
+            result['catalog'] = self.models.public()
+            result['can_stage'] = trusted and self.can_stage(properties)
+            try:
+                result['configured_selection'] = self.models.read() if trusted else None
+            except (OSError, ValueError, KeyError, TypeError):
+                result['configured_selection'] = None
+            selection = result['configured_selection']
+            result['configured_model'] = self.models.entries[selection['model_id']]['name'] if selection else None
+        return result
 
-    def perform(self, operation):
+    def properties(self, *names):
+        args = ['show']
+        for name in names:
+            args.extend(('-p', name))
+        return dict(line.split('=', 1) for line in self.run(args).splitlines() if '=' in line)
+
+    def matches_unit(self, properties):
+        return (self.trusted_unit() and properties.get('FragmentPath') == str(self.unit_file)
+                and properties.get('DropInPaths') == ''
+                and (self.models is None or properties.get('NeedDaemonReload') == 'no'))
+
+    def perform(self, operation, selection=None):
         if not self.lock.acquire(blocking=False):
             raise RuntimeError('Agent busy; no queued control')
         try:
-            return self._perform(operation)
+            return self._perform(operation, selection)
         finally:
             self.lock.release()
 
-    def _perform(self, operation):
-        if operation not in OPERATIONS:
+    def _perform(self, operation, selection):
+        if operation not in OPERATIONS and operation != 'stage_selection':
             raise ValueError('Operation not permitted')
         if operation == 'status':
             return self.status()
         # Recheck identity immediately before every mutation.
-        properties = dict(line.split('=', 1) for line in self.run(['show', '-p', 'FragmentPath', '-p', 'DropInPaths', '-p', 'ActiveState']).splitlines() if '=' in line)
-        if (not self.trusted_unit() or properties.get('FragmentPath') != str(self.unit_file) or properties.get('DropInPaths')):
+        names = ['FragmentPath', 'DropInPaths', 'ActiveState']
+        if self.models is not None:
+            names.extend(('NeedDaemonReload', 'Job'))
+        properties = self.properties(*names)
+        if not self.matches_unit(properties):
             raise RuntimeError('Unit identity changed; controls refused')
+        if operation == 'stage_selection':
+            if (self.models is None or not self.can_stage(properties) or not isinstance(selection, dict)
+                    or set(selection) != {'model_id', 'settings', 'confirmed'} or selection['confirmed'] is not True):
+                raise ValueError('Selection requires a stopped managed unit and confirmation')
+            configured = self.models.stage(selection['model_id'], selection['settings'])
+            return {'accepted': True, 'operation': operation, 'unit': UNIT, 'configured_selection': configured}
         if operation == 'start' and properties.get('ActiveState') not in ('active', 'activating'):
+            if self.models is not None:
+                if not self.can_stage(properties):
+                    raise RuntimeError('The managed unit is not ready for a start request')
+                configured = self.models.read()
+                self.models.selection(**configured, require_available=True)
             self.start_preflight()
         command = {'start': ['--no-block', 'start'], 'stop': ['--no-block', 'stop'],
                    'enable_boot': ['enable'], 'disable_boot': ['disable']}[operation]
         self.run(command)
         return {'accepted': True, 'operation': operation, 'unit': UNIT}
+
+    @staticmethod
+    def can_stage(properties):
+        return (properties.get('ActiveState') in ('inactive', 'failed')
+                and properties.get('NeedDaemonReload') == 'no' and properties.get('Job') in ('', '0'))
 
     def start_preflight(self):
         result = subprocess.run(['/usr/bin/nvidia-smi', '--query-gpu=memory.free,utilization.gpu,temperature.gpu',
@@ -162,18 +207,26 @@ class Handler(socketserver.StreamRequestHandler):
             if len(raw) > 4096 or not raw.endswith(b'\n'):
                 raise ValueError('Invalid request size')
             request = json.loads(raw)
-            if not isinstance(request, dict) or set(request) != {'token', 'operation'}:
+            if not isinstance(request, dict):
+                raise ValueError('Invalid request')
+            fields = {'token', 'operation'}
+            if request.get('operation') == 'stage_selection':
+                fields.add('selection')
+            if set(request) != fields:
                 raise ValueError('Invalid request')
             token = request['token']
             if not isinstance(token, str) or len(token) > 512 or not hmac.compare_digest(token.encode(), self.server.controller.ipc_key.encode()):
                 raise ValueError('Invalid credential')
-            result = self.server.controller.perform(request['operation'])
+            if request['operation'] == 'stage_selection':
+                result = self.server.controller.perform(request['operation'], request['selection'])
+            else:
+                result = self.server.controller.perform(request['operation'])
             reply = {'ok': True, 'result': result}
         except Exception:
             # Never return subprocess output, argv, upstream payloads or credentials.
             reply = {'ok': False, 'error': 'Engine request unavailable or refused'}
         try:
-            self.wfile.write(json.dumps(reply, allow_nan=False).encode() + b'\n')
+            self.wfile.write(json.dumps(reply, allow_nan=False, ensure_ascii=False).encode() + b'\n')
         except OSError:
             pass
 
