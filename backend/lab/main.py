@@ -22,6 +22,7 @@ from .telemetry_stream import TelemetryHub, TelemetryUnavailable
 from . import jobs
 from . import native_store
 from .native_config import NativeError
+from .engine_bridge import exchange as engine_exchange, EngineUnavailable
 
 
 class Benchmark(BaseModel):
@@ -34,14 +35,20 @@ class Benchmark(BaseModel):
 
 class Control(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    action: Literal["start", "stop"]
+    action: Literal["start", "stop", "enable_boot", "disable_boot"]
 
 
 def create_app(config=None):
     config = config or {}
     token_file = os.getenv("LAB_API_TOKEN_FILE")
     token = config.get("token", Path(token_file).read_text().strip() if token_file else os.getenv("LAB_API_TOKEN", ""))
-    controls = False  # Phase 1 cannot enable host management.
+    agent_socket = config.get('engine_socket', os.getenv('LAB_ENGINE_AGENT_SOCKET'))
+    ipc_file = os.getenv('LAB_ENGINE_AGENT_TOKEN_FILE')
+    ipc_token = config.get('engine_ipc_token', Path(ipc_file).read_text().strip() if ipc_file else '')
+    control_file = os.getenv('LAB_ENGINE_CONTROL_TOKEN_FILE')
+    engine_token = config.get('engine_control_token', Path(control_file).read_text().strip() if control_file else '')
+    controls = config.get('engine_controls', os.getenv('LAB_ENABLE_ENGINE_CONTROL', 'false').lower() == 'true')
+    agent_configured = bool(agent_socket and len(ipc_token) >= 32)
     fixtures = config.get("fixture_jobs", os.getenv("LAB_ENABLE_FIXTURE_JOBS", "false").lower() == "true")
     job_token_file = os.getenv("LAB_JOB_TOKEN_FILE")
     job_token = config.get("job_token", (
@@ -61,6 +68,13 @@ def create_app(config=None):
     async def lifespan(app):
         if len(token) < 32:
             raise RuntimeError("Set LAB_API_TOKEN to a random secret of at least 32 characters")
+        if controls and (not agent_configured or not 32 <= len(engine_token) <= 512 or
+                         engine_token in (token, ipc_token)):
+            raise RuntimeError('Engine controls require an agent and a distinct control token')
+        if agent_configured and (ipc_token == token or len(ipc_token) > 512):
+            raise RuntimeError('Engine agent requires a distinct bounded IPC secret')
+        if agent_socket and not agent_configured:
+            raise RuntimeError('Configured engine agent requires an IPC secret')
         if fixtures and (len(job_token) < 32 or hmac.compare_digest(token.encode(), job_token.encode())):
             raise RuntimeError("Fixture jobs require a distinct LAB_JOB_TOKEN of at least 32 characters")
         db.parent.mkdir(parents=True, exist_ok=True)
@@ -149,11 +163,44 @@ def create_app(config=None):
 
     @app.get("/api/engines", dependencies=auth)
     def engines():
-        return {"items": [NativeAdapter(e).status() for e in ENGINE_IDS], "controls_enabled": controls}
+        items = [NativeAdapter(e).status() for e in ENGINE_IDS]
+        if agent_configured:
+            try:
+                kmic = engine_exchange(agent_socket, ipc_token, 'status')
+                if (kmic.get('id') != 'kmic' or kmic.get('unit') != 'kmic-qwen27b.service' or
+                        kmic.get('state') not in {'active', 'inactive', 'activating', 'deactivating', 'failed', 'unavailable'}):
+                    raise EngineUnavailable('Invalid service status')
+                kmic['controls_available'] = controls and kmic.get('controls_available') is True
+            except EngineUnavailable:
+                kmic = {'id': 'kmic', 'unit': 'kmic-qwen27b.service', 'state': 'unavailable',
+                        'controls_available': False, 'ready': False, 'model': None,
+                        'note': 'Host engine agent unavailable; current service/model state is unknown.'}
+            items[0] = kmic
+        return {"items": items, "controls_enabled": controls}
 
     @app.post("/api/engines/{engine}/control", dependencies=auth)
-    def control(engine: Literal["kmic", "pxa", "qr0n"], request: Control):
-        raise HTTPException(403, "Engine controls are not implemented in Phase 1")
+    def control(engine: Literal["kmic", "pxa", "qr0n"], request: Control,
+                x_lab_engine_token: str | None = Header(default=None)):
+        if engine != 'kmic' or not controls or not agent_configured:
+            raise HTTPException(403, 'Engine controls are disabled')
+        if (not x_lab_engine_token or len(x_lab_engine_token) > 512 or
+                not hmac.compare_digest(x_lab_engine_token.encode(), engine_token.encode())):
+            raise HTTPException(403, 'A separate engine control token is required')
+        outcome = 'accepted'
+        try:
+            result = engine_exchange(agent_socket, ipc_token, request.action)
+            if (result.get('accepted') is not True or result.get('operation') != request.action or
+                    result.get('unit') != 'kmic-qwen27b.service'):
+                raise EngineUnavailable('Invalid action acknowledgement')
+        except EngineUnavailable:
+            outcome = 'unknown_or_refused'
+            result = None
+        with sqlite3.connect(db) as connection:
+            connection.execute('INSERT INTO audit(created_at,engine,action,outcome) VALUES(?,?,?,?)',
+                               (datetime.now(timezone.utc).isoformat(), engine, request.action, outcome))
+        if result is None:
+            raise HTTPException(503, 'Engine action refused or outcome unknown. Refresh status before trying again.')
+        return result
 
     @app.get("/api/models", dependencies=auth)
     def models():

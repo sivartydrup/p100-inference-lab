@@ -7,6 +7,7 @@ An Ubuntu-first, open-source observation and benchmarking foundation for native 
 - Authenticated CPU/RAM, database-disk and NVIDIA GPU telemetry; graceful operation without GPUs.
 - Shared, approximately once-per-second authenticated telemetry stream with polling fallback; see [live telemetry](docs/LIVE_TELEMETRY.md).
 - Read-only motherboard fan RPM panel, with mock, unavailable and stale states; see [fan monitoring](docs/FAN_MONITORING.md). No fan controls or automatic driver loading.
+- Optional [fixed Kmic host agent](docs/ENGINE_AGENT.md) for live service/model status and separately authenticated start/stop/boot controls; disabled and uninstalled by default.
 - Clearly labelled simulated telemetry for Windows development (`LAB_TELEMETRY=mock`). Mock values are never benchmark results.
 - Read-only adapter inventory for Kmic, PXA and qr0n; bounded GGUF/safetensors file inventory.
 - Manual benchmark recording through the authenticated API and history in the dashboard.

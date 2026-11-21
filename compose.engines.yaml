@@ -1,0 +1,23 @@
+# Optional reviewed host-agent integration; never mounts Docker/systemd buses.
+services:
+  lab:
+    environment:
+      LAB_ENGINE_AGENT_SOCKET: /engine-agent/agent.sock
+      LAB_ENGINE_AGENT_TOKEN_FILE: /run/secrets/lab_engine_agent_token
+      LAB_ENGINE_CONTROL_TOKEN_FILE: /run/secrets/lab_engine_control_token
+      LAB_ENABLE_ENGINE_CONTROL: "${LAB_ENABLE_ENGINE_CONTROL:-false}"
+    secrets:
+      - lab_engine_agent_token
+      - lab_engine_control_token
+    volumes:
+      - type: bind
+        source: /run/p100-lab-engine-agent
+        target: /engine-agent
+        read_only: true
+        bind:
+          create_host_path: false
+secrets:
+  lab_engine_agent_token:
+    file: /etc/p100-lab/engine-agent/ipc-token
+  lab_engine_control_token:
+    file: /etc/p100-lab/engine-agent/control-token

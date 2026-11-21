@@ -1,5 +1,11 @@
 # Architecture and API
 
+The optional [fixed Kmic agent](ENGINE_AGENT.md) connects live host service/model
+status and four separately authorized actions over a private Unix socket. It
+runs as the existing non-root engine account; the API container gains no host
+bus or native executable/model access. Installation/host acceptance is separate
+and controls remain off in the base deployment.
+
 The optional [administrator-started worker](ADMIN_WORKER.md) is a separate root-owned host CLI/runtime and private database, never an API child process or container permission. Fixed system units run only reviewed sealed presets as a bound non-root UID/GID with no capabilities. Effective child checks, non-forgeable approval gates, worker birth identity, sampled thermal/150 W checks, durable intent and interruption recovery apply. It installs no persistent service or privilege grant and requires integrated host acceptance after review.
 
 [Measured GPU sessions](MEASURED_SESSIONS.md) add optional operator-declared session provenance to terminal imports, with no schema migration or new API route. The browser groups only loaded records with matching participant lists, enclosure and workload/driver keys, checks their measured-window intersection, and preserves per-card outcomes and metrics. Legacy document digests are unchanged when context is absent. Session declarations never authorize execution.
