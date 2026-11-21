@@ -6,6 +6,14 @@ runs as the existing non-root engine account; the API container gains no host
 bus or native executable/model access. Installation/host acceptance is separate
 and controls remain off in the base deployment.
 
+The optional [Flash Next profiles](FLASH_NEXT_PROFILES.md) add two sealed catalog
+recipes and a non-root launcher inside the existing Kmic service. The API sends
+only an approved model ID and bounded settings over the same authenticated Unix
+socket. The launcher rechecks private staged state, every shard and draft file's
+availability, and the benchmarked engine binary before generating fixed argv.
+The browser can export matching Oh My Pi request settings without credentials.
+Host admission and production deployment remain separate review steps.
+
 The optional [administrator-started worker](ADMIN_WORKER.md) is a separate root-owned host CLI/runtime and private database, never an API child process or container permission. Fixed system units run only reviewed sealed presets as a bound non-root UID/GID with no capabilities. Effective child checks, non-forgeable approval gates, worker birth identity, sampled thermal/150 W checks, durable intent and interruption recovery apply. It installs no persistent service or privilege grant and requires integrated host acceptance after review.
 
 [Measured GPU sessions](MEASURED_SESSIONS.md) add optional operator-declared session provenance to terminal imports, with no schema migration or new API route. The browser groups only loaded records with matching participant lists, enclosure and workload/driver keys, checks their measured-window intersection, and preserves per-card outcomes and metrics. Legacy document digests are unchanged when context is absent. Session declarations never authorize execution.

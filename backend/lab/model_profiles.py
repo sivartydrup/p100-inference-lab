@@ -98,6 +98,8 @@ def save(db, request, model):
     limits = model["limits"]
     try:
         validate_settings(settings, limits["context"], limits["batch"], limits["ubatch"])
+        if model.get("recipe") and settings != model["initial"]:
+            raise ValueError("This reviewed profile requires its exact tested parameters")
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
     data = {
@@ -106,6 +108,9 @@ def save(db, request, model):
         "environment": {key: model[key] for key in ("engine_version", "gpu", "gpu_count", "quantization", "bytes", "sha256")},
         "engine": "kmic",
     }
+    if model.get("recipe"):
+        data["environment"]["recipe_id"] = model["recipe"]["id"]
+        data["environment"]["recipe_sha256"] = model["recipe"]["sha256"]
     with closing(sqlite3.connect(db)) as conn, conn:
         conn.row_factory = sqlite3.Row
         conn.execute("BEGIN IMMEDIATE")

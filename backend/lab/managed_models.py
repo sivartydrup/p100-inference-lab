@@ -1,4 +1,5 @@
 """Host-only catalog and atomic configuration for the pinned Kmic unit."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -7,6 +8,7 @@ import stat
 import tempfile
 
 from .profile_settings import LIMITS, validate_settings
+from .kmic_profiles import FLASH, FLASH_SETTINGS, FLASH_BINARY_SHA256, LEGACY, RUNTIMES, public_recipe
 
 ID = r"[a-z0-9][a-z0-9._-]{0,63}"
 SAFE_PATH = r"/[A-Za-z0-9/._+-]+"
@@ -29,6 +31,23 @@ def label(value, length):
     return value
 
 
+def artifact(value):
+    if not isinstance(value, dict) or set(value) != {"path", "bytes", "sha256"}:
+        raise ValueError("Expected a pinned artifact")
+    path = path_value(value["path"])
+    if path.suffix.lower() != ".gguf" or type(value["bytes"]) is not int or not 1 <= value["bytes"] <= 2**53 - 1:
+        raise ValueError("Invalid GGUF artifact")
+    if not isinstance(value["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", value["sha256"]):
+        raise ValueError("Expected artifact SHA-256")
+    return {**value, "path": path}
+
+
+def bundle_digest(files):
+    """Portable identity covers every ordered shard's basename, size and checksum."""
+    data = [{"name": Path(item["path"]).name, "bytes": item["bytes"], "sha256": item["sha256"]} for item in files]
+    return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 class ManagedModels:
     def __init__(self, config, state_path=STATE_FILE):
         if not isinstance(config, dict) or set(config) != {"engine_version", "gpu", "models"}:
@@ -42,7 +61,7 @@ class ManagedModels:
             raise ValueError("Invalid catalog size")
         fields = {"id", "name", "quantization", "bytes", "sha256", "path", "alias", "limits", "initial"}
         for entry in models:
-            if not isinstance(entry, dict) or set(entry) != fields:
+            if not isinstance(entry, dict) or set(entry) - {"runtime", "files", "draft"} != fields:
                 raise ValueError("Invalid model entry")
             model_id = label(entry["id"], 64)
             alias = label(entry["alias"], 64)
@@ -52,17 +71,48 @@ class ManagedModels:
             label(entry["name"], 100)
             label(entry["quantization"], 32)
             path = path_value(entry["path"])
-            if path.suffix.lower() != ".gguf" or re.search(r"-\d{5}-of-\d{5}\.gguf$", path.name, re.I):
-                raise ValueError("Only single-file GGUF models are supported")
+            runtime = entry.get("runtime", LEGACY)
+            if not isinstance(runtime, str) or runtime not in RUNTIMES:
+                raise ValueError("Unreviewed Kmic runtime")
+            sharded = re.search(r"-\d{5}-of-\d{5}\.gguf$", path.name, re.I)
+            if path.suffix.lower() != ".gguf" or (sharded and runtime not in FLASH):
+                raise ValueError("Shards require a reviewed Flash Next runtime")
             if type(entry["bytes"]) is not int or not 1 <= entry["bytes"] <= 2**53 - 1:
                 raise ValueError("Expected exact file size")
             if not re.fullmatch(r"[0-9a-f]{64}", label(entry["sha256"], 64)):
                 raise ValueError("Expected verified artifact SHA-256")
             limits = validate_settings(entry["limits"])
             validate_settings(entry["initial"], limits["context"], limits["batch"], limits["ubatch"])
-            self.entries[model_id] = {**entry, "path": path}
+            parsed = {**entry, "path": path}
+            if runtime in FLASH:
+                if limits != FLASH_SETTINGS or entry["initial"] != FLASH_SETTINGS:
+                    raise ValueError("Flash Next settings must match the tested profile")
+                files = entry.get("files")
+                if not isinstance(files, list) or not 2 <= len(files) <= 32:
+                    raise ValueError("Expected a complete sharded Flash Next bundle")
+                parsed["files"] = [artifact(item) for item in files]
+                match = re.fullmatch(r"(.+)-00001-of-(\d{5})\.gguf", path.name)
+                if not match or int(match[2]) != len(files):
+                    raise ValueError("Expected first shard and exact shard count")
+                for index, item in enumerate(parsed["files"], 1):
+                    expected = path.parent / f"{match[1]}-{index:05d}-of-{len(files):05d}.gguf"
+                    if item["path"] != expected:
+                        raise ValueError("Shards must be ordered, contiguous and in one directory")
+                if sum(item["bytes"] for item in files) != entry["bytes"] or bundle_digest(files) != entry["sha256"]:
+                    raise ValueError("Bundle size or identity mismatch")
+                parsed["draft"] = artifact(entry.get("draft"))
+                if re.search(r"-\d{5}-of-\d{5}\.gguf$", parsed["draft"]["path"].name):
+                    raise ValueError("Expected the reviewed full single-file MTP head")
+            elif set(entry) & {"files", "draft"}:
+                raise ValueError("Legacy runtime accepts one model file only")
+            self.entries[model_id] = parsed
 
     def available(self, entry):
+        artifacts = entry.get("files", [entry]) + ([entry["draft"]] if "draft" in entry else [])
+        return all(self.artifact_available(item) for item in artifacts)
+
+    @staticmethod
+    def artifact_available(entry):
         path = entry["path"]
         try:
             info = path.lstat()
@@ -72,13 +122,23 @@ class ManagedModels:
             return False
 
     def public(self):
-        excluded = {"path", "alias"}
+        excluded = {"path", "alias", "files", "draft", "runtime"}
         return [
             {**{key: value for key, value in entry.items() if key not in excluded},
              "available": self.available(entry), "engines": ["kmic"], "engine_version": self.engine_version,
-             "gpu": self.gpu, "gpu_count": 2}
+             "gpu": self.gpu, "gpu_count": 2,
+             **({"recipe": {**public_recipe(entry["runtime"]), "served_alias": entry["alias"],
+                            "sha256": self.recipe_digest(entry)}}
+                if entry.get("runtime") in FLASH else {})}
             for entry in self.entries.values()
         ]
+
+    @staticmethod
+    def recipe_digest(entry):
+        data = {"recipe": public_recipe(entry["runtime"]), "binary_sha256": FLASH_BINARY_SHA256,
+                "model_sha256": entry["sha256"], "draft_sha256": entry["draft"]["sha256"],
+                "draft_bytes": entry["draft"]["bytes"], "settings": entry["initial"]}
+        return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
     def selection(self, model_id, settings, require_available=False):
         if not isinstance(model_id, str) or model_id not in self.entries:
@@ -86,6 +146,8 @@ class ManagedModels:
         entry = self.entries[model_id]
         limits = entry["limits"]
         validate_settings(settings, limits["context"], limits["batch"], limits["ubatch"])
+        if entry.get("runtime") in FLASH and settings != FLASH_SETTINGS:
+            raise ValueError("Flash Next requires the exact tested settings")
         if require_available and not self.available(entry):
             raise ValueError("Approved model file is unavailable")
         return entry

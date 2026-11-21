@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { fixture, token } from './fixtures';
+import { readFile } from 'node:fs/promises';
 
 test('save and reuse an approved model preset, then explicitly stage it with the engine credential', async ({ page }) => {
   const settings = { context: 8192, batch: 512, ubatch: 128 };
@@ -65,4 +66,49 @@ test('save and reuse an approved model preset, then explicitly stage it with the
   await expect(engines.getByText('8192 context · 512 batch · 128 microbatch')).toBeVisible();
   await expect(engines.getByText('Not reported', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(0);
+});
+
+test('reviewed fast and reasoning profiles export distinct client settings without credentials or host paths', async ({ page }) => {
+  const settings = { context: 32768, batch: 1024, ubatch: 512 };
+  const catalog = ['Fast', 'Reasoning'].map(mode => ({
+    id: 'flash-next-' + mode.toLowerCase(), name: 'Flash Next ' + mode, bytes: 83626438426,
+    available: true, engines: ['kmic'], quantization: 'UD-IQ3_XXS', sha256: 'b'.repeat(64),
+    engine_version: 'tested-build', gpu: 'Tesla P100', gpu_count: 2, initial: settings, limits: settings,
+    recipe: { id: 'flash-next-' + mode.toLowerCase() + '-v1', mode, expert_cache_mib: 20480,
+      tensor_split: [55, 45], draft_tokens: 2, served_alias: 'flash-next-' + mode.toLowerCase(),
+      client_settings: { temperature: mode === 'Fast' ? 0.7 : 1, top_p: mode === 'Fast' ? 0.8 : 0.95,
+        chat_template_kwargs: { enable_thinking: mode === 'Reasoning' },
+        reasoning_budget_tokens: mode === 'Fast' ? 0 : 1024 }, notice: 'Small coding smoke test.' },
+  }));
+  await page.route('**/api/**', route => {
+    const key = route.request().url().split('/').pop()!;
+    return route.fulfill({ json: key === 'engines' ? { controls_enabled: true, items: [{
+      id: 'kmic', state: 'inactive', controls_available: true, can_stage: true, catalog,
+    }] } : fixture[key] });
+  });
+  await page.goto('/');
+  await page.getByLabel('Access token', { exact: true }).fill(token);
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  const library = page.getByRole('region', { name: 'Model library' });
+  for (const mode of ['Fast', 'Reasoning']) {
+    await library.getByLabel('Approved model').selectOption('flash-next-' + mode.toLowerCase());
+    await expect(library.getByLabel('Context tokens')).toHaveAttribute('readonly', '');
+    await expect(library.getByRole('heading', { name: mode + ' coding profile' })).toBeVisible();
+    const downloadEvent = page.waitForEvent('download');
+    await library.getByRole('button', { name: 'Download Oh My Pi preset' }).click();
+    const download = await downloadEvent;
+    const raw = await readFile((await download.path())!, 'utf8');
+    const config = JSON.parse(raw);
+    const provider = config.providers['p100-' + mode.toLowerCase()];
+    expect(provider.apiKey).toBe('REPLACE_WITH_INFERENCE_API_KEY');
+    expect(provider.models[0].id).toBe('flash-next-' + mode.toLowerCase());
+    expect(provider.models[0].reasoning).toBe(mode === 'Reasoning');
+    expect(provider.models[0].compat.extraBody.chat_template_kwargs.enable_thinking).toBe(mode === 'Reasoning');
+    expect(raw).not.toContain(token);
+    expect(raw).not.toContain('/home/trav');
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await library.getByText('Client request settings', { exact: true }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/flash-next-profiles-mobile.png', fullPage: true });
 });

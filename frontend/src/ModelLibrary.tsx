@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react';
+import { downloadClientProfile, type Recipe } from './clientProfile';
 
 export type Settings = { context: number; batch: number; ubatch: number };
 export type Selection = { model_id: string; settings: Settings };
-type Environment = { engine_version: string; gpu: string; gpu_count: number; quantization: string; bytes: number; sha256: string };
+type Environment = { engine_version: string; gpu: string; gpu_count: number; quantization: string; bytes: number; sha256: string; recipe_id?: string; recipe_sha256?: string };
 export type ApprovedModel = Environment & {
-  id: string; name: string; available: boolean; engines: string[]; limits: Settings; initial: Settings;
+  id: string; name: string; available: boolean; engines: string[]; limits: Settings; initial: Settings; recipe?: Recipe;
 };
 type Evidence = { report_sha256: string; metric: string; value: number };
 type Preset = Selection & {
@@ -25,7 +26,8 @@ const quantization = (name: string) => name.match(/(?:^|[.-])((?:UD-)?(?:IQ|Q)[1
 function sameEnvironment(model: ApprovedModel, preset: Preset) {
   return model.engine_version === preset.environment.engine_version && model.gpu === preset.environment.gpu &&
     model.gpu_count === preset.environment.gpu_count && model.quantization === preset.environment.quantization &&
-    model.bytes === preset.environment.bytes && model.sha256 === preset.environment.sha256;
+    model.bytes === preset.environment.bytes && model.sha256 === preset.environment.sha256 &&
+    model.recipe?.id === preset.environment.recipe_id && model.recipe?.sha256 === preset.environment.recipe_sha256;
 }
 
 export function ModelLibrary({ data, catalog = [], canStage, stage, stageMessage, token, stale, refresh }: {
@@ -99,7 +101,8 @@ function ProfileEditor({ model, presets, canStage, stage, token, stale, refresh 
   const chosen = presets.find(preset => preset.id === presetId);
   const settingsValid = fields.every(field => Number.isInteger(settings[field]) &&
     settings[field] >= minimum[field] && settings[field] <= model.limits[field]) &&
-    settings.ubatch <= settings.batch && settings.batch <= settings.context;
+    settings.ubatch <= settings.batch && settings.batch <= settings.context &&
+    (!model.recipe || fields.every(field => settings[field] === model.initial[field]));
   const ready = canStage && model.available && !stale && !busy && settingsValid;
 
   function usePreset(id: number) {
@@ -154,6 +157,16 @@ function ProfileEditor({ model, presets, canStage, stage, token, stale, refresh 
 
   return <div>
     <p className="muted">Kmic {model.engine_version} · {model.gpu_count} × {model.gpu} · {model.quantization}</p>
+    {model.recipe && <div className="empty" aria-label="Reviewed launch profile">
+      <h3>{model.recipe.mode} coding profile</h3>
+      <p>20 GiB expert cache · GPU split 55:45 · MTP drafts {model.recipe.draft_tokens} tokens</p>
+      <p>{model.recipe.notice}</p>
+      <p>This profile supplies the engine’s starting defaults. Coding clients can override sampling and thinking settings per request.</p>
+      <button className="secondary" onClick={() => downloadClientProfile(model.recipe!)}>Download Oh My Pi preset</button>
+      <p>Merge the downloaded fragment into your Oh My Pi models.yml. Set its inference API key and check the server address.
+        Use the selected profile’s served model alias. The dashboard access token is a separate credential.</p>
+      <details><summary>Client request settings</summary><pre className="client-settings">{JSON.stringify(model.recipe.client_settings, null, 2)}</pre></details>
+    </div>}
     <label className="model-fields">Load preset <select value={chosen?.id ?? 0} onChange={event => usePreset(Number(event.target.value))} disabled={busy || pending}>
       <option value={0}>Catalog starting values</option>
       {presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}{preset.is_default ? ' (default)' : ''}</option>)}
@@ -179,9 +192,10 @@ function ProfileEditor({ model, presets, canStage, stage, token, stale, refresh 
         <legend>Inference parameters</legend>
         <div className="model-fields">{fields.map(field => <label key={field}>{parameterNames[field]}
           <input type="number" min={minimum[field]} max={model.limits[field]} value={Number.isNaN(settings[field]) ? '' : settings[field]}
-            onChange={event => setSettings({ ...settings, [field]: event.target.valueAsNumber })} required />
+            onChange={event => setSettings({ ...settings, [field]: event.target.valueAsNumber })} readOnly={!!model.recipe} required />
         </label>)}</div>
         <p className="muted">Microbatch ≤ batch ≤ context. Use the model’s reviewed limits.</p>
+        {model.recipe && <p className="muted">These parameters are fixed to the tested profile. Further tuning requires a separately reviewed profile.</p>}
         <div className="model-fields">
           <label>Preset name <input value={name} maxLength={80} onChange={event => setName(event.target.value)} required /></label>
           <label>Workload <input value={workload} maxLength={240} onChange={event => setWorkload(event.target.value)} required={evidence} /></label>
