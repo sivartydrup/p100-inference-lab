@@ -252,6 +252,39 @@ code {
 .engine-access input {
   max-width: 100%;
 }
+
+.model-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  margin: .75rem 0;
+}
+
+.model-fields label, label.model-fields {
+  display: grid;
+  gap: .3rem;
+}
+
+.model-fields input, .model-fields select {
+  color: inherit;
+  background: #101824;
+  border: 1px solid #415064;
+  border-radius: .35rem;
+  padding: .45rem .6rem;
+  max-width: 100%;
+}
+
+.model-profile fieldset {
+  display: grid;
+  gap: .6rem;
+  min-width: 0;
+  margin: .75rem 0;
+  border: 1px solid #415064;
+}
+
+.model-digest {
+  overflow-wrap: anywhere;
+}
 .engine-grid dd {
   overflow-wrap: anywhere;
   min-width: 0;

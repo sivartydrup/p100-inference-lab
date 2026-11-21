@@ -1,0 +1,17 @@
+{
+  "engine_version": "replace-with-reviewed-Kmic-revision-and-build",
+  "gpu": "Tesla P100 PCIe 16GB",
+  "models": [
+    {
+      "id": "example-q6-k-v1",
+      "name": "Example model",
+      "quantization": "Q6_K",
+      "bytes": 12345,
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "path": "/home/trav/inference/models/example-q6-k.gguf",
+      "alias": "example-model",
+      "limits": {"context": 8192, "batch": 512, "ubatch": 128},
+      "initial": {"context": 4096, "batch": 512, "ubatch": 128}
+    }
+  ]
+}

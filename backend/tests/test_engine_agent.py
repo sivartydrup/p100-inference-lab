@@ -14,6 +14,7 @@ if os.name != 'posix':
 
 from lab.engine_agent import Controller, Server, UNIT, socket_path
 from lab.engine_bridge import exchange, EngineUnavailable
+from lab.managed_models import ManagedModels, STATE_FILE
 
 pytestmark = pytest.mark.skipif(os.name != 'posix', reason='Host agent is Ubuntu-only')
 
@@ -139,3 +140,50 @@ def test_socket_restart_handles_only_owned_stale_socket():
             with socket_path(path):
                 pass
         assert path.read_text() == 'not a socket'
+
+
+def test_managed_selection_stages_only_when_stopped_and_start_rechecks_file(controller, tmp_path):
+    approved = tmp_path / 'approved.gguf'
+    approved.write_bytes(b'GGUF')
+    settings = {'context': 4096, 'batch': 512, 'ubatch': 128}
+    controller.models = ManagedModels({
+        'engine_version': 'fixture', 'gpu': 'P100', 'models': [{
+            'id': 'fixture', 'name': 'Fixture', 'quantization': 'Q6_K', 'bytes': 4, 'sha256': 'a' * 64,
+            'path': str(approved), 'alias': 'fixture-model', 'limits': settings, 'initial': settings,
+        }],
+    }, tmp_path / 'selection.env')
+    controller.unit_file.write_text(f'[Service]\nEnvironmentFile={STATE_FILE}\nExecStart=/fixed/server\n')
+    controller.digest = hashlib.sha256(controller.unit_file.read_bytes()).hexdigest()
+    body = {'model_id': 'fixture', 'settings': settings, 'confirmed': True}
+    idle = properties(controller, NeedDaemonReload='no', Job='')
+    for overrides in ({'ActiveState': 'active'}, {'Job': '42'}, {'NeedDaemonReload': 'yes'}):
+        values = {'NeedDaemonReload': 'no', 'Job': '', **overrides}
+        with patch.object(controller, 'run', return_value=properties(controller, **values)):
+            with pytest.raises((ValueError, RuntimeError)):
+                controller.perform('stage_selection', body)
+    assert not controller.models.path.exists()
+    with patch.object(controller, 'run', return_value=idle) as run, patch.object(controller, 'start_preflight') as preflight:
+        acknowledged = controller.perform('stage_selection', body)
+        assert run.call_count == 1
+        assert acknowledged['configured_selection'] == controller.models.read()
+        original = controller.models.path.read_bytes()
+        for invalid in ({**body, 'confirmed': 1}, {**body, 'model_id': '/etc/passwd'},
+                        {**body, 'settings': {**settings, 'context': 8192}}):
+            with pytest.raises(ValueError):
+                controller.perform('stage_selection', invalid)
+        assert controller.models.path.read_bytes() == original
+        assert controller.models.path.stat().st_mode & 0o777 == 0o600
+        status = controller.perform('status')
+        assert status['can_stage'] and status['configured_model'] == 'Fixture'
+        assert status['catalog'][0]['available'] and str(approved) not in json.dumps(status)
+        assert status['boot_enabled'] and not status['ready']
+        assert controller.perform('start')['accepted'] and run.call_args.args == (['--no-block', 'start'],)
+        preflight.assert_called_once()
+        controller.models.path.write_text(original.decode() + 'LAB_CONTEXT=99999\n')
+        with pytest.raises(ValueError):
+            controller.perform('start')
+        controller.models.path.write_bytes(original)
+        approved.unlink()
+        with pytest.raises(ValueError):
+            controller.perform('start')
+        preflight.assert_called_once()
