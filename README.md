@@ -83,4 +83,8 @@ Read [architecture](docs/ARCHITECTURE.md), [security/control design](SECURITY.md
 
 ## License
 
+Optional [fan1/fan2 controls](docs/FAN_CONTROLS.md) provide reviewed Full/Auto/Manual
+switches and live output sliders after a separate root-broker installation and
+host acceptance. Base deployment remains monitoring-only.
+
 Apache-2.0 for this project. Dependencies, container OS packages, external engines and model weights retain their own licenses. No engines, NVIDIA libraries or models are bundled in the source. Exact engine upstreams and licenses require host verification before integration or redistribution.

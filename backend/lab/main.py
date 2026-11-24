@@ -24,6 +24,7 @@ from . import native_store
 from .native_config import NativeError
 from .engine_bridge import exchange as engine_exchange, EngineUnavailable
 from . import model_profiles
+from . import fan_control
 
 
 class Benchmark(BaseModel):
@@ -50,6 +51,10 @@ def create_app(config=None):
     engine_token = config.get('engine_control_token', Path(control_file).read_text().strip() if control_file else '')
     controls = config.get('engine_controls', os.getenv('LAB_ENABLE_ENGINE_CONTROL', 'false').lower() == 'true')
     agent_configured = bool(agent_socket and len(ipc_token) >= 32)
+    fan_socket = config.get('fan_socket', os.getenv('LAB_FAN_AGENT_SOCKET'))
+    fan_file = os.getenv('LAB_FAN_AGENT_TOKEN_FILE')
+    fan_token = config.get('fan_ipc_token', Path(fan_file).read_text().strip() if fan_file else '')
+    fan_controls = config.get('fan_controls', os.getenv('LAB_ENABLE_FAN_CONTROL', 'false').lower() == 'true')
     fixtures = config.get("fixture_jobs", os.getenv("LAB_ENABLE_FIXTURE_JOBS", "false").lower() == "true")
     job_token_file = os.getenv("LAB_JOB_TOKEN_FILE")
     job_token = config.get("job_token", (
@@ -69,6 +74,9 @@ def create_app(config=None):
     async def lifespan(app):
         if len(token) < 32:
             raise RuntimeError("Set LAB_API_TOKEN to a random secret of at least 32 characters")
+        if fan_controls and (not fan_socket or not 32 <= len(fan_token) <= 128 or
+                             not 32 <= len(engine_token) <= 512 or len({token, fan_token, engine_token, ipc_token}) != 4):
+            raise RuntimeError('Fan controls require a private broker, distinct IPC token and engine-control credential')
         if controls and (not agent_configured or not 32 <= len(engine_token) <= 512 or
                          engine_token in (token, ipc_token)):
             raise RuntimeError('Engine controls require an agent and a distinct control token')
@@ -220,6 +228,35 @@ def create_app(config=None):
                         x_lab_engine_token: str | None = Header(default=None)):
         authorize_engine(engine, x_lab_engine_token)
         return mutate_engine(engine, 'stage_selection', request.model_dump())
+
+    @app.get('/api/fan-controls', dependencies=auth)
+    def fan_status():
+        if not fan_controls:
+            return {'enabled': False, 'available': False, 'channels': {}}
+        try:
+            return {**fan_control.exchange(fan_socket, fan_token), 'enabled': True}
+        except (fan_control.Unavailable, fan_control.Conflict):
+            return {'enabled': True, 'available': False, 'channels': {}, 'message': 'Fan controller unavailable; controls disabled.'}
+
+    @app.post('/api/fan-controls', dependencies=auth)
+    def change_fan(request: fan_control.Change, x_lab_engine_token: str | None = Header(default=None)):
+        if (not fan_controls or not x_lab_engine_token or len(x_lab_engine_token) > 512 or
+                not hmac.compare_digest(x_lab_engine_token.encode(), engine_token.encode())):
+            raise HTTPException(403, 'Fan controls require the separate engine control token')
+        outcome, result, failure = 'unknown_or_refused', None, None
+        try:
+            result = fan_control.exchange(fan_socket, fan_token, request.model_dump(exclude_none=True))
+            outcome = 'accepted'
+        except fan_control.Conflict:
+            failure = HTTPException(409, 'Fan state changed or safety fallback active. Refresh before changing it.')
+        except fan_control.Unavailable:
+            failure = HTTPException(503, 'Fan request refused or outcome unknown. Refresh before changing it.')
+        with sqlite3.connect(db) as connection:
+            connection.execute('INSERT INTO audit(created_at,engine,action,outcome) VALUES(?,?,?,?)',
+                               (datetime.now(timezone.utc).isoformat(), 'fans',
+                                request.channel + ':' + (request.mode or str(request.pwm)), outcome))
+        if failure: raise failure
+        return {**result, 'enabled': True}
 
     @app.get("/api/models", dependencies=auth)
     def models():

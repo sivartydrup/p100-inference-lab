@@ -1,5 +1,11 @@
 # Architecture and API
 
+Optional [fan controls](FAN_CONTROLS.md) use a distinct root Unix-socket broker;
+the API remains non-root. The broker is limited to the reviewed IT8620's two
+channels, with no shell or engine operations. Existing telemetry still performs
+read-only RPM/mode/duty reads. A separate control-status poll and versioned
+mutations drive the mode switches and Manual-only sliders.
+
 The optional [fixed Kmic agent](ENGINE_AGENT.md) connects live host service/model
 status and four separately authorized actions over a private Unix socket. It
 runs as the existing non-root engine account; the API container gains no host

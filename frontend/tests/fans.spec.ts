@@ -28,14 +28,14 @@ test('fan readings distinguish zero, missing, stale and disappearing channels', 
   const panel = page.getByRole('region', { name: 'Fan monitoring', exact: true });
   await expect(panel.getByText('4,245 RPM', { exact: true })).toBeVisible();
   await expect(panel.getByText('0 RPM', { exact: true })).toHaveCount(0);
-  await expect(panel.getByText('Unavailable', { exact: true })).toBeVisible();
+  await expect(panel.locator('.fan-rpm').filter({ hasText: 'Unavailable' })).toBeVisible();
   await expect(panel.getByText('1 zero-RPM input hidden', { exact: true })).toBeVisible();
   await panel.getByRole('button', { name: 'Show zero-RPM inputs', exact: true }).click();
   await expect(panel.getByText('0 RPM', { exact: true })).toBeVisible();
   await expect(panel.getByText('No rotation reported', { exact: false })).toBeVisible();
   await panel.getByRole('button', { name: 'Hide zero-RPM inputs', exact: true }).click();
   await expect(panel.getByText('0 RPM', { exact: true })).toHaveCount(0);
-  await expect(panel.locator('input,select')).toHaveCount(0);
+  await expect(panel.getByRole('slider')).toBeDisabled();
   await page.screenshot({ path: 'test-results/fan-monitoring-desktop.png', fullPage: true });
   current = { ...fans, devices: fans.devices.map(fan => fan.id === 'b' ? { ...fan, rpm: 4300 } : fan) };
   await page.clock.fastForward(6000);

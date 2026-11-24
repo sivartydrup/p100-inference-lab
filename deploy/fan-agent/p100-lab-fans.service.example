@@ -1,0 +1,42 @@
+# Install only after the documented isolated host acceptance and code review.
+[Unit]
+Description=P100 lab IT8620 fan1/fan2 control broker
+After=systemd-modules-load.service
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=root
+Group=10001
+ExecStart=/opt/p100-lab-fans/venv/bin/python -I -m lab.fan_agent --token-file /etc/p100-lab-fans/ipc-token
+ExecStopPost=/opt/p100-lab-fans/venv/bin/python -I -m lab.fan_agent --failsafe
+RuntimeDirectory=p100-lab-fans
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+UMask=0007
+WatchdogSec=10
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=12
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+# Only this controller subtree is writable; broker code permits PWM1/2 only.
+ReadWritePaths=/sys/devices/platform/it87.2624
+ReadOnlyPaths=/proc/sys /proc/sysrq-trigger
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+PrivateTmp=yes
+PrivateDevices=no
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryMax=96M
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target

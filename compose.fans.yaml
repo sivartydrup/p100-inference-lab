@@ -1,0 +1,24 @@
+# Optional, separately installed root broker. No sysfs write mount in the API.
+services:
+  lab:
+    environment:
+      LAB_ENABLE_FAN_CONTROL: "true"
+      LAB_FAN_AGENT_SOCKET: /fan-agent/agent.sock
+      LAB_FAN_AGENT_TOKEN_FILE: /run/secrets/lab_fan_agent_token
+      # Existing distinct engine-control token; never use the viewer token here.
+      LAB_ENGINE_CONTROL_TOKEN_FILE: /run/secrets/lab_engine_control_token
+    volumes:
+      - type: bind
+        source: /run/p100-lab-fans
+        target: /fan-agent
+        read_only: true
+        bind:
+          create_host_path: false
+    secrets:
+      - lab_fan_agent_token
+      - lab_engine_control_token
+secrets:
+  lab_fan_agent_token:
+    file: /etc/p100-lab-fans/ipc-token
+  lab_engine_control_token:
+    file: ${LAB_ENGINE_CONTROL_TOKEN_FILE:-./secrets/engine-control-token.txt}

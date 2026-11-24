@@ -65,4 +65,6 @@ jobs:
       - run: python3 tests/native_history_smoke.py
       - run: python3 tests/admin_worker_smoke.py
       - run: docker compose -f compose.yaml -f compose.engines.yaml config --quiet
+      - run: docker compose -f compose.yaml -f compose.fans.yaml config --quiet
       - run: python3 tests/engine_agent_smoke.py
+      - run: python3 tests/fan_control_smoke.py

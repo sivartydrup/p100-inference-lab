@@ -101,3 +101,19 @@ def test_live_sample_includes_fans(tmp_path):
     fans = {'available': False, 'devices': [], 'controls_enabled': False}
     with patch('lab.telemetry.fan_metrics', return_value=fans), patch('lab.telemetry.gpu_metrics', return_value={}):
         assert sample('live', tmp_path)['fans'] == fans
+
+
+def test_only_reviewed_controller_channels_get_live_mode_and_output(tmp_path):
+    directory = controller(tmp_path)
+    for channel in (1, 2, 3, 4):
+        (directory / f'fan{channel}_input').write_text('4000')
+        (directory / f'pwm{channel}').write_text('70')
+        (directory / f'pwm{channel}_enable').write_text('2')
+    original = Path.resolve
+    def resolve(path, *args, **kwargs):
+        return Path('/sys/devices/platform/it87.2624') if path.name == 'device' else original(path, *args, **kwargs)
+    with patch.object(Path, 'resolve', resolve):
+        result = fan_metrics(tmp_path)
+    assert [item.get('pwm') for item in result['devices']] == [70, 70, None, None]
+    assert [item.get('pwm_enable') for item in result['devices']] == [2, 2, None, None]
+    assert not result['controls_enabled']
