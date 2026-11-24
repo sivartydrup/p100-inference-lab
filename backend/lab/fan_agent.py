@@ -165,8 +165,10 @@ class Controller:
                 raise Conflict('Output editing requires Manual mode')
             try:
                 if 'mode' in change:
-                    # Enter Manual at the freshly observed output, never an old saved duty.
-                    current = self.hardware.read(channel, 'duty')
+                    # Full bypasses the duty register; preserve maximum output on
+                    # entry to Manual rather than using a stale stored low duty.
+                    current = (255 if self.hardware.read(channel, 'enable') == 0
+                               else self.hardware.read(channel, 'duty')) if change['mode'] == 'manual' else None
                     self.hardware.write(channel, 'enable', MODES[change['mode']])
                     if change['mode'] == 'manual':
                         self.hardware.write(channel, 'duty', current)

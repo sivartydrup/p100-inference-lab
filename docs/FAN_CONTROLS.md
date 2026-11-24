@@ -4,7 +4,7 @@ The optional fan broker adds Full / Auto / Manual switches and live 0–255 outp
 
 ## Dashboard behavior
 
-- Full writes `pwmN_enable=0`. Auto writes `2`. Manual reads the current duty, writes enable `1`, then applies that observed duty so it does not select an old unrelated manual value.
+- Full writes `pwmN_enable=0`. Auto writes `2`. Manual from Auto reads the current duty, writes enable `1`, then applies that observed duty. Manual from Full starts at 255, preserving maximum output instead of restoring an older stored lower duty.
 - The slider displays the reported `pwmN` register, including automatic updates. Its range is integer 0–255. It is editable only in Manual mode with fresh readings, a healthy broker and an unlocked control token. Dragging sends one change on release; keyboard and focus-out edits also commit. Zero asks for confirmation because it may stop the fan.
 - Full mode bypasses normal PWM regulation on this chip. The reported duty register may retain its earlier value even though Full mode drives full speed. The slider is a register reading, not measured voltage, percent of RPM or a target RPM.
 - Both controlled cards remain visible at zero RPM when controls are enabled, so a stopped fan's controls do not disappear. Other zero-RPM inputs retain the existing hide/show behavior.

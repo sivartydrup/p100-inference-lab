@@ -58,6 +58,8 @@ def test_manual_preserves_current_level_and_edits_require_manual():
     assert change(control, pwm=255)['channels']['fan1']['pwm'] == 255
     assert change(control, mode='auto')['channels']['fan1']['mode'] == 2
     assert change(control, mode='full')['channels']['fan1']['mode'] == 0
+    hw.values['fan1']['pwm'] = 40  # Full bypasses this stored value.
+    assert change(control, mode='manual')['channels']['fan1']['pwm'] == 255
     assert hw.values['fan2']['mode'] == 2
 
 
