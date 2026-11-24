@@ -282,7 +282,8 @@ def main():
         hardware.full()
         return
     if args.restore_auto:
-        gpu_temperatures()
+        if max(gpu_temperatures()) >= 60:
+            raise ValueError('Restore Auto only with both GPUs below 60C')
         try:
             for channel in ('fan1', 'fan2'):
                 hardware.write(channel, 'enable', 2)

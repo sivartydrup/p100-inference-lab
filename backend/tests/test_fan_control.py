@@ -208,6 +208,10 @@ def test_operator_helpers_only_write_two_allowlisted_channels():
         hw.writes.clear()
         with patch('sys.argv', ['fan-agent', '--restore-auto']), patch('lab.fan_agent.gpu_temperatures', return_value=[40, 40]): main()
         assert hw.writes == [('fan1', 'enable', 2), ('fan2', 'enable', 2)]
+        hw.writes.clear()
+        with patch('sys.argv', ['fan-agent', '--restore-auto']), patch('lab.fan_agent.gpu_temperatures', return_value=[60, 40]):
+            with pytest.raises(ValueError): main()
+        assert not hw.writes
 
 
 @pytest.mark.skipif(os.name != 'posix', reason='Unix runtime protection')
