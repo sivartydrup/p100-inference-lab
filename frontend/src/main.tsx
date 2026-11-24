@@ -357,7 +357,7 @@ function App() {
                     </p>
                   )}
                 </section>
-                <FanMonitoring fans={data.system.fans} stale={stale} />
+                <FanMonitoring fans={data.system.fans} stale={stale} token={token} />
                 <EngineServices items={data.engines.items} controlsEnabled={data.engines.controls_enabled}
                   token={token} stale={stale} library={data.models} refresh={() => setRefreshSequence(value => value + 1)} />
                 <section id="history">

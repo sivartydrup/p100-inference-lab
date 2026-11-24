@@ -289,6 +289,12 @@ code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.fan-controls { margin-top: 1rem; }
+.fan-mode-switch { display: flex; gap: .25rem; margin-bottom: 1rem; }
+.fan-mode-switch button { flex: 1; padding: .5rem; background: #192226; color: #b9c8cf; border: 1px solid #415064; }
+.fan-mode-switch button[aria-checked="true"] { background: #c4f27b; color: #172009; border-color: #c4f27b; }
+.fan-controls label { display: grid; gap: .5rem; }
+.fan-controls input[type="range"] { width: 100%; padding: 0; accent-color: #b8ef65; }
 .engine-grid dd {
   overflow-wrap: anywhere;
   min-width: 0;

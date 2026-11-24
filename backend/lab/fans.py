@@ -1,4 +1,4 @@
-"""Bounded hwmon RPM reads only. Never loads drivers or opens control attributes."""
+"""Bounded hwmon reads only. Optional output/mode reads never write controls."""
 from itertools import islice
 from pathlib import Path
 import re
@@ -61,8 +61,18 @@ def fan_metrics(root=Path('/sys/class/hwmon')):
             except (OSError, ValueError):
                 rpm = None
                 partial = True
-            devices.append({'id': f'{controller}:{device}:{channel}', 'controller': controller,
-                            'device': device, 'channel': channel, 'rpm': rpm})
+            item = {'id': f'{controller}:{device}:{channel}', 'controller': controller,
+                    'device': device, 'channel': channel, 'rpm': rpm}
+            if controller == 'it8620' and device == 'it87.2624' and channel in ('fan1', 'fan2'):
+                try:
+                    output, mode = _text(directory / ('pwm' + channel[-1]), 3), _text(directory / ('pwm' + channel[-1] + '_enable'), 1)
+                    if not output.isdigit() or not 0 <= int(output) <= 255 or mode not in ('0', '1', '2'):
+                        raise ValueError('Invalid PWM state')
+                    item.update(pwm=int(output), pwm_enable=int(mode))
+                except (OSError, ValueError):
+                    item.update(pwm=None, pwm_enable=None)
+                    partial = True
+            devices.append(item)
     available = any(d['rpm'] is not None for d in devices)
     message = ('Some fan readings are unavailable.' if partial or truncated else
                'Readings use sensor channel names; physical fan assignments are unverified.') if available else (

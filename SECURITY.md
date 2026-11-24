@@ -7,6 +7,14 @@ engine control token is required in addition to API authentication. Base
 deployment remains management-disabled; no systemd/Docker bus enters the API.
 Host installation and acceptance are not performed by this change.
 
+The optional [fan broker](docs/FAN_CONTROLS.md) is a separate root service for
+only IT8620 PWM1/PWM2 on the reviewed X99 board. HTTP fan changes require both
+viewer and engine-control credentials; the root Unix socket uses a distinct IPC
+secret and strict channel/mode/value/session validation. No sysfs write access
+enters the API container. A host watchdog and temperature/monitoring fallback
+request Full on both channels. Host acceptance and installation remain explicit
+operator steps; all other fan channels remain read-only.
+
 The [measured-history importer](docs/MEASURED_HISTORY.md) is a local operator command, not a web upload/execute endpoint. Its strict bounded schema and converter reject ambiguous, inconsistent and non-finite evidence, strip paths/argv/content/credentials, recompute summaries and append only terminal records. These are operator assertions identified by hashes, not authenticated hardware attestations. The API reads a separately published native snapshot through an optional read-only mount, with no source-database write access. All existing bearer authentication and disabled management routes remain in force. No runner is enabled and no driver, power or boot service is changed by import/publish. The unpatched picomatch advisory remains in the raw audit report. A proposed exception accepts only its exact development-only version chain until 2026-11-25T00:00:00Z; new high/critical advisories, version/path changes, production exposure or expiry fail. The independent production audit remains strict at the high-severity threshold. Review this explicit risk acceptance before merging.
 
 All `/api/*` routes require a randomly generated bearer token (at least 32 characters). `/healthz` and static UI assets are public. Authentication uses constant-time comparison; no browser cookies or CORS are enabled. Token stays only in React memory and clears on reload/disconnect. API responses disable caching. Never put credentials in URLs, source control, browser storage or frontend build variables. Rotate the token file and recreate the container; open tabs must reconnect with the new token.
