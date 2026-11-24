@@ -28,6 +28,8 @@ ProtectHome=yes
 # Only this controller subtree is writable; broker code permits PWM1/2 only.
 ReadWritePaths=/sys/devices/platform/it87.2624
 ReadOnlyPaths=/sys /proc/sys /proc/sysrq-trigger
+# Explicit bind takes precedence over the implicit API sysfs mount.
+BindReadOnlyPaths=/sys
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 PrivateTmp=yes
