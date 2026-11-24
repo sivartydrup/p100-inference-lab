@@ -27,7 +27,7 @@ ProtectSystem=strict
 ProtectHome=yes
 # Only this controller subtree is writable; broker code permits PWM1/2 only.
 ReadWritePaths=/sys/devices/platform/it87.2624
-ReadOnlyPaths=/proc/sys /proc/sysrq-trigger
+ReadOnlyPaths=/sys /proc/sys /proc/sysrq-trigger
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 PrivateTmp=yes
