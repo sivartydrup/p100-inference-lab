@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, ConfigDict, Field
 
-from .adapters import ENGINE_IDS, NativeAdapter, inventory
+from .adapters import ENGINE_IDS, MANAGED_UNITS, NativeAdapter, inventory
 from .telemetry import sample
 from .telemetry_stream import TelemetryHub, TelemetryUnavailable
 from . import jobs
@@ -27,9 +27,12 @@ from . import model_profiles
 from . import fan_control
 
 
+EngineId = Literal["kmic", "kmic-moe", "pxa", "qr0n", "strata", "scream", "scream-512k", "inkling"]
+
+
 class Benchmark(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-    engine: Literal["kmic", "pxa", "qr0n"]
+    engine: EngineId
     model: str = Field(min_length=1, max_length=200)
     tokens_per_second: float = Field(gt=0, le=1000000)
     notes: str = Field(default="", max_length=2000)
@@ -171,25 +174,33 @@ def create_app(config=None):
         return StreamingResponse(events(), media_type="text/event-stream", background=BackgroundTask(telemetry_hub.unsubscribe, key), headers={
             "Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
+    def ask_engine(engine, operation, *args):
+        if engine == 'kmic':
+            return engine_exchange(agent_socket, ipc_token, operation, *args)
+        return engine_exchange(agent_socket, ipc_token, operation, *args, engine=engine)
+
+    def engine_status(engine):
+        unit = MANAGED_UNITS[engine]
+        try:
+            result = ask_engine(engine, 'status')
+            if (result.get('id') != engine or result.get('unit') != unit or
+                    result.get('state') not in {'active', 'inactive', 'activating', 'deactivating', 'failed', 'unavailable'}):
+                raise EngineUnavailable('Invalid service status')
+            result['controls_available'] = controls and result.get('controls_available') is True
+            return result
+        except EngineUnavailable:
+            return {'id': engine, 'unit': unit, 'state': 'unavailable',
+                    'controls_available': False, 'ready': False, 'model': None,
+                    'note': 'Host engine agent has no current status for this engine.'}
+
     @app.get("/api/engines", dependencies=auth)
     def engines():
-        items = [NativeAdapter(e).status() for e in ENGINE_IDS]
-        if agent_configured:
-            try:
-                kmic = engine_exchange(agent_socket, ipc_token, 'status')
-                if (kmic.get('id') != 'kmic' or kmic.get('unit') != 'kmic-qwen27b.service' or
-                        kmic.get('state') not in {'active', 'inactive', 'activating', 'deactivating', 'failed', 'unavailable'}):
-                    raise EngineUnavailable('Invalid service status')
-                kmic['controls_available'] = controls and kmic.get('controls_available') is True
-            except EngineUnavailable:
-                kmic = {'id': 'kmic', 'unit': 'kmic-qwen27b.service', 'state': 'unavailable',
-                        'controls_available': False, 'ready': False, 'model': None,
-                        'note': 'Host engine agent unavailable; current service/model state is unknown.'}
-            items[0] = kmic
+        items = [engine_status(engine) if agent_configured and engine in MANAGED_UNITS
+                 else NativeAdapter(engine).status() for engine in ENGINE_IDS]
         return {"items": items, "controls_enabled": controls}
 
     def authorize_engine(engine, x_lab_engine_token):
-        if engine != 'kmic' or not controls or not agent_configured:
+        if engine not in MANAGED_UNITS or not controls or not agent_configured:
             raise HTTPException(403, 'Engine controls are disabled')
         if (not x_lab_engine_token or len(x_lab_engine_token) > 512 or
                 not hmac.compare_digest(x_lab_engine_token.encode(), engine_token.encode())):
@@ -198,10 +209,10 @@ def create_app(config=None):
     def mutate_engine(engine, action, selection=None):
         outcome = 'accepted'
         try:
-            args = (agent_socket, ipc_token, action)
-            result = engine_exchange(*args) if selection is None else engine_exchange(*args, selection)
+            args = (engine, action)
+            result = ask_engine(*args) if selection is None else ask_engine(*args, selection)
             if (result.get('accepted') is not True or result.get('operation') != action or
-                    result.get('unit') != 'kmic-qwen27b.service'):
+                    result.get('unit') != MANAGED_UNITS[engine]):
                 raise EngineUnavailable('Invalid action acknowledgement')
             if selection is not None and result.get('configured_selection') != {
                 key: selection[key] for key in ('model_id', 'settings')
@@ -218,15 +229,19 @@ def create_app(config=None):
         return result
 
     @app.post("/api/engines/{engine}/control", dependencies=auth)
-    def control(engine: Literal["kmic", "pxa", "qr0n"], request: Control,
+    def control(engine: EngineId, request: Control,
                 x_lab_engine_token: str | None = Header(default=None)):
         authorize_engine(engine, x_lab_engine_token)
+        if engine != 'kmic' and request.action not in {'start', 'stop'}:
+            raise HTTPException(403, 'This engine supports start and stop')
         return mutate_engine(engine, request.action)
 
     @app.post("/api/engines/{engine}/selection", dependencies=auth)
-    def stage_selection(engine: Literal["kmic", "pxa", "qr0n"], request: model_profiles.Selection,
+    def stage_selection(engine: EngineId, request: model_profiles.Selection,
                         x_lab_engine_token: str | None = Header(default=None)):
         authorize_engine(engine, x_lab_engine_token)
+        if engine != 'kmic':
+            raise HTTPException(403, 'Model selection is available for Kmic')
         return mutate_engine(engine, 'stage_selection', request.model_dump())
 
     @app.get('/api/fan-controls', dependencies=auth)

@@ -1,0 +1,15 @@
+[Unit]
+Description=OpenAI-compatible P100 inference gateway
+After=network-online.target
+
+[Service]
+Type=exec
+UMask=0077
+NoNewPrivileges=yes
+WorkingDirectory=%h/inference/p100-gateway
+ExecStart=%h/inference/p100-gateway/venv/bin/python -m lab.inference_gateway --config %h/.config/p100-gateway/routes.json --host 192.168.0.188 --port 8090
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

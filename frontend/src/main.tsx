@@ -209,9 +209,6 @@ function App() {
         <div className="aside-note">
           Native Ubuntu engines
           <br />
-          Kmic · PXA · qr0n
-          <br />
-          <br />
           Target: 192.168.0.188
           <br />
           Browser dashboard / port 3000

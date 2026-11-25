@@ -1,4 +1,4 @@
-"""Optional non-root host agent for exactly one operator-owned Kmic unit.
+"""Optional non-root host agent for fixed operator-owned inference units.
 
 No TCP listener, shell, arbitrary argv, downloads or root commands.
 Installation and existing-engine changes are separate operator actions.
@@ -22,11 +22,23 @@ import subprocess
 import threading
 from urllib.parse import urlsplit
 import urllib.request
+from .adapters import MANAGED_UNITS
 from .managed_models import ManagedModels, STATE_FILE
 from .kmic_profiles import FLASH
 
-UNIT = 'kmic-qwen27b.service'
+UNIT = MANAGED_UNITS['kmic']
 OPERATIONS = {'status', 'start', 'stop', 'enable_boot', 'disable_boot'}
+
+
+def serving_profile(profile):
+    if (not isinstance(profile, dict) or set(profile) != {'alias', 'quantization', 'context', 'max_output', 'reasoning', 'vision'}
+            or not isinstance(profile['alias'], str) or not re.fullmatch(r'[A-Za-z0-9._-]{1,160}', profile['alias'])
+            or not isinstance(profile['quantization'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,32}', profile['quantization'])
+            or type(profile['context']) is not int or not 512 <= profile['context'] <= 1_000_000
+            or type(profile['max_output']) is not int or not 0 < profile['max_output'] < profile['context']
+            or type(profile['reasoning']) is not bool or type(profile['vision']) is not bool):
+        raise ValueError('Invalid fixed serving profile')
+    return profile
 
 
 def secret(path):
@@ -46,12 +58,16 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class Controller:
-    def __init__(self, config):
+    def __init__(self, config, *, engine='kmic'):
+        self.engine = engine
+        self.unit = MANAGED_UNITS[engine]
+        self.peers = {}
         expected = {'unit_file', 'unit_sha256', 'endpoint', 'upstream_token_file', 'ipc_token_file', 'model_label'}
-        if not isinstance(config, dict) or set(config) - {'managed_models'} != expected:
+        optional = {'managed_models', *MANAGED_UNITS.keys() - {'kmic'}} if engine == 'kmic' else {'serving_profile'}
+        if not isinstance(config, dict) or set(config) - optional != expected:
             raise ValueError('Invalid engine configuration')
         self.unit_file = Path(config['unit_file'])
-        if not self.unit_file.is_absolute() or self.unit_file.name != UNIT or not re.fullmatch(r'[a-f0-9]{64}', config['unit_sha256']):
+        if not self.unit_file.is_absolute() or self.unit_file.name != self.unit or not re.fullmatch(r'[a-f0-9]{64}', config['unit_sha256']):
             raise ValueError('Invalid pinned unit')
         self.digest = config['unit_sha256']
         parsed = urlsplit(config['endpoint'])
@@ -71,10 +87,24 @@ class Controller:
         if not isinstance(self.model_label, str) or not 1 <= len(self.model_label) <= 160 or not self.model_label.isprintable():
             raise ValueError('Invalid model label')
         self.models = ManagedModels(config['managed_models']) if 'managed_models' in config else None
+        self.profile = serving_profile(config['serving_profile']) if 'serving_profile' in config else None
         self.lock = threading.Lock()
+        if engine == 'kmic':
+            controllers = {'kmic': self}
+            for name in MANAGED_UNITS.keys() & config.keys() - {'kmic'}:
+                entry = config[name]
+                if not isinstance(entry, dict) or 'ipc_token_file' in entry:
+                    raise ValueError('Invalid optional engine configuration')
+                controllers[name] = Controller({**entry, 'ipc_token_file': config['ipc_token_file']}, engine=name)
+            for name, controller in controllers.items():
+                controller.peers = {peer_id: peer for peer_id, peer in controllers.items() if peer_id != name}
+                controller.lock = self.lock
 
     def trusted_unit(self):
-        info = self.unit_file.lstat()
+        try:
+            info = self.unit_file.lstat()
+        except FileNotFoundError:
+            return False
         if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o022:
             return False
         contents = self.unit_file.read_bytes()
@@ -86,7 +116,7 @@ class Controller:
 
     def run(self, arguments, timeout=4):
         # Fixed executable, unit and allowlisted arguments only; never shell=True.
-        result = subprocess.run(['/usr/bin/systemctl', '--user', *arguments, UNIT],
+        result = subprocess.run(['/usr/bin/systemctl', '--user', *arguments, self.unit],
                                 capture_output=True, text=True, timeout=timeout,
                                 env={'PATH': '/usr/bin:/bin', 'LANG': 'C', 'LC_ALL': 'C',
                                      'XDG_RUNTIME_DIR': f'/run/user/{os.getuid()}',
@@ -114,19 +144,28 @@ class Controller:
         ready = False
         if state == 'active':
             try:
-                ready = self.upstream('/health').get('status') == 'ok'
-                if ready:
+                ready = self.engine == 'kmic' and self.upstream('/health').get('status') == 'ok'
+                if ready or self.engine != 'kmic':
                     items = self.upstream('/v1/models').get('data', [])
+                    if self.profile is not None:
+                        items = [item for item in items if item.get('id') == self.profile['alias']]
                     if len(items) == 1 and isinstance(items[0].get('id'), str):
-                        model = items[0]['id'].replace('\\', '/').rsplit('/', 1)[-1][:160]
+                        status = items[0].get('status')
+                        if not isinstance(status, dict) or status.get('value') != 'unloaded':
+                            model = items[0]['id'].replace('\\', '/').rsplit('/', 1)[-1][:160]
+                    if self.engine != 'kmic':
+                        ready = bool(model)
             except (OSError, ValueError, TypeError, AttributeError, KeyError):
                 pass
-        result = {'id': 'kmic', 'unit': UNIT, 'state': state, 'ready': ready,
+        result = {'id': self.engine, 'unit': self.unit, 'state': state, 'ready': ready,
                 'model': model, 'configured_model': self.model_label,
-                'boot_enabled': properties.get('UnitFileState') == 'enabled',
-                'boot_state': properties.get('UnitFileState', 'unknown'),
                 'controls_available': trusted,
                 'note': 'Live host service and authenticated inference-server status.' if trusted else 'Unit configuration changed; controls refused.'}
+        if self.engine == 'kmic':
+            result['boot_enabled'] = properties.get('UnitFileState') == 'enabled'
+            result['boot_state'] = properties.get('UnitFileState', 'unknown')
+        if trusted and self.profile is not None:
+            result['serving_profile'] = self.profile
         if self.models is not None:
             result['catalog'] = self.models.public()
             result['can_stage'] = trusted and self.can_stage(properties)
@@ -147,7 +186,7 @@ class Controller:
     def matches_unit(self, properties):
         return (self.trusted_unit() and properties.get('FragmentPath') == str(self.unit_file)
                 and properties.get('DropInPaths') == ''
-                and (self.models is None or properties.get('NeedDaemonReload') == 'no'))
+                and ((self.engine == 'kmic' and self.models is None) or properties.get('NeedDaemonReload') == 'no'))
 
     def perform(self, operation, selection=None):
         if not self.lock.acquire(blocking=False):
@@ -160,11 +199,13 @@ class Controller:
     def _perform(self, operation, selection):
         if operation not in OPERATIONS and operation != 'stage_selection':
             raise ValueError('Operation not permitted')
+        if self.engine != 'kmic' and operation not in {'status', 'start', 'stop'}:
+            raise ValueError('Operation not permitted for this engine')
         if operation == 'status':
             return self.status()
         # Recheck identity immediately before every mutation.
         names = ['FragmentPath', 'DropInPaths', 'ActiveState']
-        if self.models is not None:
+        if self.models is not None or self.engine != 'kmic':
             names.extend(('NeedDaemonReload', 'Job'))
         properties = self.properties(*names)
         if not self.matches_unit(properties):
@@ -174,8 +215,13 @@ class Controller:
                     or set(selection) != {'model_id', 'settings', 'confirmed'} or selection['confirmed'] is not True):
                 raise ValueError('Selection requires a stopped managed unit and confirmation')
             configured = self.models.stage(selection['model_id'], selection['settings'])
-            return {'accepted': True, 'operation': operation, 'unit': UNIT, 'configured_selection': configured}
+            return {'accepted': True, 'operation': operation, 'unit': self.unit, 'configured_selection': configured}
         if operation == 'start' and properties.get('ActiveState') not in ('active', 'activating'):
+            if any(not self.can_stage(peer.properties('ActiveState', 'NeedDaemonReload', 'Job'))
+                   for peer in self.peers.values()):
+                raise RuntimeError('Stop the other managed engine before starting this engine')
+            if self.engine != 'kmic' and not self.can_stage(properties):
+                raise RuntimeError('The engine is not ready for a start request')
             if self.models is not None:
                 if not self.can_stage(properties):
                     raise RuntimeError('The managed unit is not ready for a start request')
@@ -185,7 +231,7 @@ class Controller:
         command = {'start': ['--no-block', 'start'], 'stop': ['--no-block', 'stop'],
                    'enable_boot': ['enable'], 'disable_boot': ['disable']}[operation]
         self.run(command)
-        return {'accepted': True, 'operation': operation, 'unit': UNIT}
+        return {'accepted': True, 'operation': operation, 'unit': self.unit}
 
     @staticmethod
     def can_stage(properties):
@@ -200,7 +246,7 @@ class Controller:
         rows = [[float(value.strip()) for value in row.split(',')] for row in result.stdout.splitlines()]
         if (len(rows) != 2 or any(len(row) != 3 or any(not math.isfinite(v) for v in row) for row in rows) or
                 any(free < 14000 or load >= 10 or temp >= 75 for free, load, temp in rows)):
-            raise RuntimeError('Both GPUs must be available before starting the configured Kmic profile')
+            raise RuntimeError('Both GPUs must be available before starting the engine')
 
 
 class Handler(socketserver.StreamRequestHandler):
@@ -214,6 +260,12 @@ class Handler(socketserver.StreamRequestHandler):
             if not isinstance(request, dict):
                 raise ValueError('Invalid request')
             fields = {'token', 'operation'}
+            controller = self.server.controller
+            if 'engine' in request:
+                fields.add('engine')
+                if not isinstance(request['engine'], str) or request['engine'] not in controller.peers:
+                    raise ValueError('Engine is not configured')
+                controller = controller.peers[request['engine']]
             if request.get('operation') == 'stage_selection':
                 fields.add('selection')
             if set(request) != fields:
@@ -222,9 +274,9 @@ class Handler(socketserver.StreamRequestHandler):
             if not isinstance(token, str) or len(token) > 512 or not hmac.compare_digest(token.encode(), self.server.controller.ipc_key.encode()):
                 raise ValueError('Invalid credential')
             if request['operation'] == 'stage_selection':
-                result = self.server.controller.perform(request['operation'], request['selection'])
+                result = controller.perform(request['operation'], request['selection'])
             else:
-                result = self.server.controller.perform(request['operation'])
+                result = controller.perform(request['operation'])
             reply = {'ok': True, 'result': result}
         except Exception:
             # Never return subprocess output, argv, upstream payloads or credentials.

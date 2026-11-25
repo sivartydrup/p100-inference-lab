@@ -15,3 +15,6 @@ playwright-report/
 secrets/
 work/
 frontend/audit-report.json
+
+# Private operator reports and deployment backups
+outputs/

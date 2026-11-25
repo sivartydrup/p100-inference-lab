@@ -1,11 +1,13 @@
-# Fixed Kmic dashboard control
+# Host engine controls
 
-The optional host agent observes and controls exactly `kmic-qwen27b.service` in
-the existing engine account's user manager. The base dashboard stays read-only.
-The agent and Compose overlay are not installed or enabled automatically.
-An optional host catalog and stopped-service next-start configuration are
-documented in [Model library and Kmic profiles](MODEL_LIBRARY.md). The controls
-described below are the default for the existing static unit.
+The optional host agent observes and controls fixed systemd user units in
+the existing engine account's user manager. It supports Kmic and optional
+units for Kmic MoE, Strata, Scream P100, Inkling 2 Mini, PXA and qr0n. The base dashboard
+starts in read-only mode.
+
+Kmic supports an optional [host catalog and next-start configuration](MODEL_LIBRARY.md).
+Other engines can publish their [fixed service profile](SCREAM_P100.md)
+in the Model library.
 
 Read-only host inspection on 21 November 2026 found this service active and
 enabled, with its authenticated model endpoint reporting `qwen3.8-27b-p100` and
@@ -22,7 +24,8 @@ responses are bounded, model paths are reduced to basenames, and raw service
 output, credentials and prompts never enter the dashboard. A configured model
 label is distinct from the server-reported loaded model.
 
-The static unit supports start, stop, enable_boot and disable_boot. Start/stop submit
+Kmic supports start, stop and boot enablement changes. The optional
+units support start and stop. Start/stop submit
 nonblocking systemd jobs: acceptance is not completion or model readiness. Boot
 changes do not start/stop the current process. Stop confirmation warns about
 interrupting inference. Readiness, model and service state are shown separately.
@@ -32,8 +35,8 @@ Before each mutation the agent verifies the unit-file digest, fragment path and
 absence of drop-ins. Editing the unit requires separate operator review and a
 new pinned digest. Boot symlink changes do not alter it. Starting an inactive
 service requires two GPUs with at least 14,000 MiB free each, utilization below
-10% and temperature below 75 C. This preflight is for the fixed 27B deployment,
-not continuous enforcement or an atomic GPU reservation. Do not run independent
+10% and temperature below 75 C. The host agent checks peers for pending
+jobs and uses one control lock across the configured units. Do not run independent
 launchers or native benchmarks concurrently; they can race sampled preflight.
 Existing unit settings govern the running engine. GPU/fan/power/driver/benchmark
 policies are not changed.

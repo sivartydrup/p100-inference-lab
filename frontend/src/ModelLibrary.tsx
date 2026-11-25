@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from 'react';
-import { downloadClientProfile, type Recipe } from './clientProfile';
+import { downloadClientProfile, downloadGatewayProfile, type Recipe } from './clientProfile';
+import { engineNames } from './engines';
+import type { Engine } from './EngineServices';
 
 export type Settings = { context: number; batch: number; ubatch: number };
 export type Selection = { model_id: string; settings: Settings };
@@ -20,7 +22,6 @@ const parameterNames = { context: 'Context tokens', batch: 'Batch tokens', ubatc
 const minimum = { context: 512, batch: 32, ubatch: 32 };
 const fields = Object.keys(parameterNames) as (keyof Settings)[];
 const gib = (bytes: number) => (bytes / 2 ** 30).toFixed(2) + ' GiB';
-const engineNames = { kmic: 'Kmic', pxa: 'PXA', qr0n: 'qr0n' };
 const quantization = (name: string) => name.match(/(?:^|[.-])((?:UD-)?(?:IQ|Q)[1-8](?:_[A-Z0-9]+)+|F16|BF16|F32)(?=[.-])/i)?.[1] ?? 'Unknown';
 
 function sameEnvironment(model: ApprovedModel, preset: Preset) {
@@ -30,12 +31,17 @@ function sameEnvironment(model: ApprovedModel, preset: Preset) {
     model.recipe?.id === preset.environment.recipe_id && model.recipe?.sha256 === preset.environment.recipe_sha256;
 }
 
-export function ModelLibrary({ data, catalog = [], canStage, stage, stageMessage, token, stale, refresh }: {
-  data: Library; catalog?: ApprovedModel[]; canStage: boolean; stage: (selection: Selection) => void;
+export function ModelLibrary({ data, engines, catalog = [], canStage, stage, stageMessage, token, stale, refresh }: {
+  data: Library; engines: Engine[]; catalog?: ApprovedModel[]; canStage: boolean; stage: (selection: Selection) => void;
   stageMessage: string; token: string; stale: boolean; refresh: () => void;
 }) {
-  const [engine, setEngine] = useState('kmic');
+  const [selectedEngine, setEngine] = useState('kmic');
   const [modelId, setModelId] = useState('');
+  const engine = engines.some(item => item.id === selectedEngine) ? selectedEngine : engines[0]?.id ?? '';
+  const fixedEngines = engines.filter((item): item is Engine & { serving_profile: NonNullable<Engine['serving_profile']> } =>
+    item.serving_profile !== undefined);
+  const fixedEngine = fixedEngines.find(item => item.id === engine);
+  const profile = fixedEngine?.serving_profile;
   const compatible = catalog.filter(model => model.engines.includes(engine));
   const chosen = compatible.find(model => model.id === modelId);
   const presets = data.presets ?? [];
@@ -49,8 +55,14 @@ export function ModelLibrary({ data, catalog = [], canStage, stage, stageMessage
           <td>{model.name}<br /><code>{model.id}</code></td><td>{model.quantization}</td>
           <td title={model.bytes.toLocaleString() + ' bytes'}>{gib(model.bytes)}</td>
           <td>{stale ? 'Unknown' : model.available ? 'Available' : 'Unavailable'}</td>
-          <td>{model.engines.map(id => engineNames[id as keyof typeof engineNames] ?? id).join(', ')}</td>
+          <td>{model.engines.map(id => engineNames[id] ?? id).join(', ')}</td>
           <td>Host catalog</td>
+        </tr>)}
+        {fixedEngines.map(item => <tr key={item.id}>
+          <td>{item.configured_model}<br /><code>{item.serving_profile.alias}</code></td>
+          <td>{item.serving_profile.quantization}</td><td>—</td>
+          <td>{stale ? 'Unknown' : item.ready ? 'Loaded' : item.state === 'active' ? 'Loading' : 'Configured'}</td>
+          <td>{engineNames[item.id] ?? item.id}</td><td>Fixed service profile</td>
         </tr>)}
         {data.items.map(item => <tr key={item.root + ':' + item.name}>
           <td>{item.name}</td><td>{quantization(item.name)}</td>
@@ -61,16 +73,29 @@ export function ModelLibrary({ data, catalog = [], canStage, stage, stageMessage
     </table></div>
     {data.warnings.map((warning, index) => <p key={index} className="error">{warning}</p>)}
     {data.truncated && <p>Inventory scan limit reached.</p>}
-    {!catalog.length && !data.items.length && <p className="empty">No model files found.</p>}
+    {!catalog.length && !fixedEngines.length && !data.items.length && <p className="empty">No model files found.</p>}
     <div className="model-fields">
       <label>Engine <select value={engine} onChange={event => { setEngine(event.target.value); setModelId(''); }}>
-        {Object.entries(engineNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        {engines.map(item => <option key={item.id} value={item.id}>{engineNames[item.id] ?? item.id}</option>)}
       </select></label>
-      <label>Approved model <select value={chosen?.id ?? ''} onChange={event => setModelId(event.target.value)} disabled={!compatible.length}>
-        <option value="">{compatible.length ? 'Select a model' : 'No approved models reported'}</option>
-        {compatible.map(model => <option key={model.id} value={model.id}>{model.name}{model.available ? '' : ' (unavailable)'}</option>)}
+      <label>Approved model <select value={profile?.alias ?? chosen?.id ?? ''} onChange={event => setModelId(event.target.value)} disabled={!compatible.length}>
+        {profile ? <option value={profile.alias}>{fixedEngine?.configured_model}</option> : <>
+          <option value="">{compatible.length ? 'Select a model' : 'No approved models reported'}</option>
+          {compatible.map(model => <option key={model.id} value={model.id}>{model.name}{model.available ? '' : ' (unavailable)'}</option>)}
+        </>}
       </select></label>
     </div>
+    {profile && <div className="model-profile">
+      <dl>
+        <dt>Gateway model ID</dt><dd><code>{profile.alias}</code></dd>
+        <dt>Context</dt><dd>{profile.context.toLocaleString()} tokens</dd>
+        <dt>Maximum output</dt><dd>{profile.max_output.toLocaleString()} tokens</dd>
+        <dt>Input</dt><dd>{profile.vision ? 'Text and images' : 'Text'}</dd>
+        <dt>Reasoning</dt><dd>{profile.reasoning ? 'Supported' : 'Off'}</dd>
+      </dl>
+      <p className="muted">This model is configured in the host service. Use Engine services to load it.</p>
+      <button className="secondary" disabled={stale} onClick={() => downloadGatewayProfile(profile, fixedEngine?.configured_model ?? profile.alias)}>Download Oh My Pi preset</button>
+    </div>}
     {chosen && <ProfileEditor key={chosen.id} model={chosen} presets={presets.filter(item => item.model_id === chosen.id)}
       canStage={canStage} stage={stage} token={token} stale={stale} refresh={refresh} />}
     {presets.some(preset => !catalog.some(model => model.id === preset.model_id)) && <details>
@@ -158,11 +183,11 @@ function ProfileEditor({ model, presets, canStage, stage, token, stale, refresh 
   return <div>
     <p className="muted">Kmic {model.engine_version} · {model.gpu_count} × {model.gpu} · {model.quantization}</p>
     {model.recipe && <div className="empty" aria-label="Reviewed launch profile">
-      <h3>{model.recipe.mode} coding profile</h3>
-      <p>20 GiB expert cache · GPU split 55:45 · MTP drafts {model.recipe.draft_tokens} tokens</p>
+      <h3>{model.initial.context > 32768 ? 'Long-context' : model.recipe.mode} coding profile</h3>
+      <p>{model.recipe.expert_cache_mib / 1024} GiB expert cache · GPU split {model.recipe.tensor_split.join(':')} · MTP drafts {model.recipe.draft_tokens} tokens</p>
       <p>{model.recipe.notice}</p>
       <p>This profile supplies the engine’s starting defaults. Coding clients can override sampling and thinking settings per request.</p>
-      <button className="secondary" onClick={() => downloadClientProfile(model.recipe!)}>Download Oh My Pi preset</button>
+      <button className="secondary" onClick={() => downloadClientProfile(model.recipe!, model.initial.context)}>Download Oh My Pi preset</button>
       <p>Merge the downloaded fragment into your Oh My Pi models.yml. Set its inference API key and check the server address.
         Use the selected profile’s served model alias. The dashboard access token is a separate credential.</p>
       <details><summary>Client request settings</summary><pre className="client-settings">{JSON.stringify(model.recipe.client_settings, null, 2)}</pre></details>

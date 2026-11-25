@@ -99,7 +99,7 @@ def save(db, request, model):
     try:
         validate_settings(settings, limits["context"], limits["batch"], limits["ubatch"])
         if model.get("recipe") and settings != model["initial"]:
-            raise ValueError("This reviewed profile requires its exact tested parameters")
+            raise ValueError("This profile requires its exact launch parameters")
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
     data = {

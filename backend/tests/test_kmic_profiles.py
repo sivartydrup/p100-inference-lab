@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from lab.kmic_profiles import FAST, REASONING, FLASH_SETTINGS, launch_arguments, public_recipe
+from lab.kmic_profiles import FAST, REASONING, FULL_CONTEXT, FLASH, FLASH_SETTINGS, launch_arguments, public_recipe
 from lab.managed_models import ManagedModels, bundle_digest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -13,16 +13,21 @@ CATALOG = ROOT / "deploy/engine-agent/flash-next.profiles.json"
 linux = pytest.mark.skipif(os.name != "posix", reason="Host paths and private state are Ubuntu-only")
 
 
-@pytest.mark.parametrize("runtime,thinking,budget,temp", [(FAST, False, "0", "0.7"), (REASONING, True, "1024", "1.0")])
-def test_reviewed_recipe_and_client_agree(runtime, thinking, budget, temp):
+@pytest.mark.parametrize("runtime,thinking,budget,temp,context,cache", [
+    (FAST, False, "0", "0.7", "32768", "20480"),
+    (REASONING, True, "1024", "1.0", "32768", "20480"),
+    (FULL_CONTEXT, True, "1024", "1.0", "262144", "16384"),
+])
+def test_reviewed_recipe_and_client_agree(runtime, thinking, budget, temp, context, cache):
     entry = {"path": "/fixed/main.gguf", "alias": "flash-next", "runtime": runtime,
              "draft": {"path": "/fixed/draft.gguf"}}
-    argv = launch_arguments(entry, FLASH_SETTINGS)
+    argv = launch_arguments(entry, FLASH[runtime])
     def value(flag):
         assert argv.count(flag) == 1
         return argv[argv.index(flag) + 1]
     assert value("-sm") == "layer" and value("-ts") == "55,45"
-    assert value("--moe-cache-mib") == "20480" and value("--spec-draft-n-max") == "2"
+    assert value("-c") == context
+    assert value("--moe-cache-mib") == cache and value("--spec-draft-n-max") == "2"
     assert value("--spec-draft-device") == "CUDA1" and value("--load-mode") == "none"
     assert value("--reasoning-budget") == budget and value("--temp") == temp
     assert json.loads(value("--chat-template-kwargs"))["enable_thinking"] is thinking
@@ -31,6 +36,26 @@ def test_reviewed_recipe_and_client_agree(runtime, thinking, budget, temp):
         launch_arguments(entry, {**FLASH_SETTINGS, "context": 16384})
     with pytest.raises(ValueError):
         launch_arguments({**entry, "runtime": "--shell"}, FLASH_SETTINGS)
+
+
+@linux
+def test_full_context_profile_stages_and_launches_at_native_capacity(tmp_path):
+    models = ManagedModels(fixture_catalog(tmp_path), tmp_path / "selection.env")
+    profile = next(model for model in models.public() if model["recipe"]["id"] == FULL_CONTEXT)
+    settings = {**FLASH_SETTINGS, "context": 262144, "ubatch": 256}
+    assert profile["initial"] == profile["limits"] == settings
+    assert profile["recipe"]["client_settings"]["chat_template_kwargs"]["enable_thinking"]
+    models.stage(profile["id"], settings)
+    assert models.read() == {"model_id": profile["id"], "settings": settings}
+    entry = models.selection(profile["id"], settings)
+    argv = launch_arguments(entry, settings)
+    assert argv[argv.index("-c") + 1] == "262144"
+    assert argv[argv.index("-ub") + 1] == "256"
+    assert argv[argv.index("--moe-cache-mib") + 1] == str(profile["recipe"]["expert_cache_mib"]) == "16384"
+    with pytest.raises(ValueError):
+        models.selection(profile["id"], FLASH_SETTINGS)
+    with pytest.raises(ValueError):
+        launch_arguments(entry, FLASH_SETTINGS)
 
 
 def test_existing_27b_recipe_keeps_native_flags():

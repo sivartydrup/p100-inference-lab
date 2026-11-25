@@ -70,3 +70,38 @@ test('stale engine data prevents control actions', async ({ page }) => {
   await expect(engines.getByText('Unknown — stale data')).toBeVisible();
   await expect(engines.getByRole('button', { name: 'stop', exact: true })).toBeDisabled();
 });
+
+test('Strata uses the shared controls after Kmic stops', async ({ page }) => {
+  let kmicState = 'active';
+  const submitted: string[] = [];
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/control')) {
+      expect(route.request().headers()['x-lab-engine-token']).toBe(controlToken);
+      submitted.push(path);
+      if (path === '/api/engines/kmic/control') kmicState = 'inactive';
+      return route.fulfill({ json: { accepted: true } });
+    }
+    const key = path.split('/').pop()!;
+    await route.fulfill({ json: key === 'engines' ? { controls_enabled: true, items: [
+      { ...kmic, state: kmicState },
+      { id: 'strata', unit: 'p100-lab-strata.service', state: 'inactive', controls_available: true, ready: false },
+    ] } : fixture[key] });
+  });
+  await page.goto('/');
+  await page.getByLabel('Access token', { exact: true }).fill(token);
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  const engines = page.getByRole('region', { name: 'Engine services', exact: true });
+  await engines.getByLabel('Engine control token').fill(controlToken);
+  await engines.getByRole('button', { name: 'Unlock controls', exact: true }).click();
+  const strata = engines.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Strata', exact: true }) });
+  const start = strata.getByRole('button', { name: 'start', exact: true });
+  await expect(start).toBeDisabled();
+  await engines.getByRole('button', { name: 'stop', exact: true }).first().click();
+  await engines.getByRole('button', { name: 'Confirm stop', exact: true }).click();
+  await expect(start).toBeEnabled();
+  await start.click();
+  await expect(engines.getByText('Start Strata and load its configured model?')).toBeVisible();
+  await engines.getByRole('button', { name: 'Confirm start', exact: true }).click();
+  await expect.poll(() => submitted).toEqual(['/api/engines/kmic/control', '/api/engines/strata/control']);
+});

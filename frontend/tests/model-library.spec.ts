@@ -33,7 +33,8 @@ test('save and reuse an approved model preset, then explicitly stage it with the
       controls_available: true, can_stage: true, boot_enabled: true, catalog: [model],
       configured_model: config ? model.name : null, configured_selection: config };
     await route.fulfill({ json: key === 'models' ? { ...(fixture.models as object), presets }
-      : key === 'engines' ? { controls_enabled: true, items: [kmic] } : fixture[key] });
+      : key === 'engines' ? { controls_enabled: true, items: [kmic,
+        { id: 'pxa', unit: 'p100-lab-pxa.service', state: 'unavailable' }] } : fixture[key] });
   });
   await page.goto('/');
   await page.getByLabel('Access token', { exact: true }).fill(token);
@@ -66,6 +67,35 @@ test('save and reuse an approved model preset, then explicitly stage it with the
   await expect(engines.getByText('8192 context · 512 batch · 128 microbatch')).toBeVisible();
   await expect(engines.getByText('Not reported', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(0);
+});
+
+for (const [engine, alias, name, quantization, context] of [
+  ['scream', 'scream-flash-next-iq3-s', 'Flash Next IQ3_S', 'IQ3_S', 262144],
+  ['scream-512k', 'scream-flash-next-iq3-s-512k', 'Flash Next IQ3_S 512K', 'IQ3_S', 524288],
+  ['inkling', 'inkling2-mini', 'Inkling 2 Mini', 'NVFP4-Q8_0', 262144],
+] as const) test(`${name} shows its fixed limits and exports a gateway preset`, async ({ page }) => {
+  const service = { id: engine, unit: `p100-lab-${engine}.service`, state: 'inactive', ready: false,
+    controls_available: true, configured_model: name,
+    serving_profile: { alias, quantization, context, max_output: 4096, reasoning: true, vision: true } };
+  await page.route('**/api/**', async route => {
+    const key = route.request().url().split('/').pop()!;
+    await route.fulfill({ json: key === 'engines' ? { controls_enabled: true, items: [service] } : fixture[key] });
+  });
+  await page.goto('/');
+  await page.getByLabel('Access token', { exact: true }).fill(token);
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  const library = page.getByRole('region', { name: 'Model library' });
+  await expect(library.getByRole('combobox', { name: 'Engine', exact: true })).toHaveValue(engine);
+  await expect(library.getByRole('combobox', { name: 'Approved model' })).toHaveValue(alias);
+  await expect(library.getByText(`${context.toLocaleString('en-US')} tokens`)).toBeVisible();
+  await expect(library.getByRole('button', { name: 'Configure next start' })).toHaveCount(0);
+  const downloadEvent = page.waitForEvent('download');
+  await library.getByRole('button', { name: 'Download Oh My Pi preset' }).click();
+  const download = await downloadEvent;
+  const config = JSON.parse(await readFile((await download.path())!, 'utf8')).providers.p100;
+  expect(config.baseUrl).toBe('http://127.0.0.1:8090/v1');
+  expect(config.apiKey).toBe('P100_INFERENCE_KEY');
+  expect(config.models[0]).toMatchObject({ id: alias, contextWindow: context, maxTokens: 4096, input: ['text', 'image'] });
 });
 
 test('reviewed fast and reasoning profiles export distinct client settings without credentials or host paths', async ({ page }) => {

@@ -12,6 +12,7 @@ dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1", "psutil>=6,<8"]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10", "httpx>=0.28,<1"]
+gateway = ["httpx>=0.28,<1"]
 
 [tool.setuptools.packages.find]
 include = ["lab*"]

@@ -101,6 +101,31 @@ def test_busy_actions_refuse_instead_of_queue(controller):
         controller.lock.release()
 
 
+def test_strata_refuses_to_start_while_kmic_is_running_or_queued(controller, tmp_path):
+    unit = tmp_path / 'p100-lab-strata.service'
+    unit.write_text('[Service]\nExecStart=/fixed/strata\n')
+    unit.chmod(0o644)
+    strata = Controller({'unit_file': str(unit), 'unit_sha256': hashlib.sha256(unit.read_bytes()).hexdigest(),
+                         'endpoint': 'http://127.0.0.1:8081', 'upstream_token_file': str(tmp_path / 'upstream'),
+                         'ipc_token_file': str(tmp_path / 'ipc'), 'model_label': 'Flash-Next'}, engine='strata')
+    strata.peers = {'kmic': controller}
+    idle = properties(strata, NeedDaemonReload='no', Job='')
+    with (patch.object(strata, 'run', return_value=idle) as run,
+          patch.object(controller, 'properties') as peer,
+          patch.object(strata, 'start_preflight') as preflight):
+        for state, job in [('active', '0'), ('inactive', '41'), ('deactivating', '0')]:
+            peer.return_value = {'ActiveState': state, 'NeedDaemonReload': 'no', 'Job': job}
+            with pytest.raises(RuntimeError, match='Stop the other'):
+                strata.perform('start')
+        preflight.assert_not_called()
+        peer.return_value = {'ActiveState': 'inactive', 'NeedDaemonReload': 'no', 'Job': '0'}
+        assert strata.perform('start')['unit'] == unit.name
+        preflight.assert_called_once()
+        assert run.call_args.args == (['--no-block', 'start'],)
+        with pytest.raises(ValueError):
+            strata.perform('enable_boot')
+
+
 def test_real_unix_transport_authentication_and_fixed_schema(controller):
     import tempfile
     with tempfile.TemporaryDirectory(prefix='engine-agent-') as directory:

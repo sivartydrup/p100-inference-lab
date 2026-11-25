@@ -4,14 +4,19 @@ import json
 LEGACY = "qwen27b-v1"
 FAST = "flash-next-fast-v1"
 REASONING = "flash-next-reasoning-v1"
-FLASH = {FAST, REASONING}
-RUNTIMES = {LEGACY, *FLASH}
+FULL_CONTEXT = "flash-next-full-context-v1"
 FLASH_BINARY_SHA256 = "aa6e5c2ecf13ccfb00024ed594205f0efddfe3c84dbcb05092eb1f9a9705bafc"
 FLASH_SETTINGS = {"context": 32768, "batch": 1024, "ubatch": 512}
+FLASH = {
+    FAST: FLASH_SETTINGS,
+    REASONING: FLASH_SETTINGS,
+    FULL_CONTEXT: {**FLASH_SETTINGS, "context": 262144, "ubatch": 256},
+}
+RUNTIMES = {LEGACY, *FLASH}
 
 
 def client_settings(runtime):
-    thinking = runtime == REASONING
+    thinking = runtime != FAST
     return {
         "temperature": 1.0 if thinking else 0.7,
         "top_p": 0.95 if thinking else 0.8,
@@ -22,15 +27,23 @@ def client_settings(runtime):
     }
 
 
+def expert_cache_mib(runtime):
+    return 16384 if runtime == FULL_CONTEXT else 20480
+
+
 def public_recipe(runtime):
     if runtime not in FLASH:
         return None
+    if runtime == FULL_CONTEXT:
+        notice = "256K native context. Startup and a short completion passed on dual P100s. Long prompts await validation."
+    else:
+        notice = ("32K capacity; five-minute non-thinking validation and a small Oh My Pi coding smoke test. "
+                  "Reasoning used a 1024-token budget. These are not broad coding-quality measurements.")
     return {
-        "id": runtime, "mode": "Reasoning" if runtime == REASONING else "Fast",
-        "expert_cache_mib": 20480, "tensor_split": [55, 45], "draft_tokens": 2,
+        "id": runtime, "mode": "Fast" if runtime == FAST else "Reasoning",
+        "expert_cache_mib": expert_cache_mib(runtime), "tensor_split": [55, 45], "draft_tokens": 2,
         "client_settings": client_settings(runtime),
-        "notice": "32K capacity; five-minute non-thinking validation and a small Oh My Pi coding smoke test. "
-                  "Reasoning used a 1024-token budget. These are not broad coding-quality measurements.",
+        "notice": notice,
     }
 
 
@@ -49,11 +62,11 @@ def launch_arguments(entry, settings):
                        "-ctkd", "q4_0", "-ctvd", "q4_0", "--jinja", "--temp", "1.0",
                        "--top-k", "20", "--top-p", "0.95", "--min-p", "0.0",
                        "--cache-prompt", "--no-webui"]
-    if settings != FLASH_SETTINGS:
-        raise ValueError("Flash Next requires the tested context, batch and microbatch")
+    if settings != FLASH[runtime]:
+        raise ValueError("Flash Next requires the configured recipe context, batch and microbatch")
     client = client_settings(runtime)
     return args + ["--fit", "off", "-sm", "layer", "-ctk", "q8_0", "-ctv", "q8_0",
-                   "-t", "8", "-tb", "8", "--moe-cache-mib", "20480", "-cmoe",
+                   "-t", "8", "-tb", "8", "--moe-cache-mib", str(expert_cache_mib(runtime)), "-cmoe",
                    "-ts", "55,45", "--load-mode", "none", "--spec-type", "draft-mtp",
                    "-md", str(entry["draft"]["path"]), "--spec-draft-n-max", "2",
                    "-ngld", "99", "-ubd", "64", "-ctkd", "q8_0", "-ctvd", "q8_0",

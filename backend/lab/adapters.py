@@ -4,7 +4,9 @@ import io
 import subprocess
 from pathlib import Path
 
-ENGINE_IDS = ("kmic", "pxa", "qr0n")
+ENGINE_IDS = ("kmic", "kmic-moe", "pxa", "qr0n", "strata", "scream", "scream-512k", "inkling")
+MANAGED_UNITS = {"kmic": "kmic-qwen27b.service",
+                 **{engine: f"p100-lab-{engine}.service" for engine in ENGINE_IDS if engine != "kmic"}}
 
 
 def run(argv: list[str], timeout: int = 5):
@@ -16,7 +18,7 @@ class NativeAdapter:
         if engine_id not in ENGINE_IDS:
             raise ValueError("Unknown engine")
         self.id = engine_id
-        self.unit = f"p100-lab-{engine_id}.service"
+        self.unit = MANAGED_UNITS[engine_id]
 
     def status(self):
         try:

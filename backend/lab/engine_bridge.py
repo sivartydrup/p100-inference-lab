@@ -7,8 +7,10 @@ class EngineUnavailable(RuntimeError):
     pass
 
 
-def exchange(path, token, operation, selection=None):
+def exchange(path, token, operation, selection=None, *, engine='kmic'):
     payload = {'token': token, 'operation': operation}
+    if engine != 'kmic':
+        payload['engine'] = engine
     if selection is not None:
         payload['selection'] = selection
     request = json.dumps(payload).encode() + b'\n'
