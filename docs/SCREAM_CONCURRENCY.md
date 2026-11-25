@@ -1,7 +1,9 @@
 # Scream Flash Next concurrency experiments
 
-**Prepared only. No live inference run or production configuration change is
-part of this feature.** Use a dedicated maintenance window. The runner refuses
+**Offline by default. Execution requires a dedicated maintenance window.**
+The [hardware results](SCREAM_CONCURRENCY_RESULTS_20261125.md) document a separately
+authorized run; checking out this feature performs no inference or deployment.
+The runner refuses
 active managed engines and any existing GPU compute process; it never stops
 them for you. Pause all coding clients and stop the selected engine through
 the existing dashboard before explicitly executing a test.
