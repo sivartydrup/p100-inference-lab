@@ -6,7 +6,7 @@ Stdlib only; results/config/logs are private, outside the source tree.
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import copy
 import hashlib
 import http.client
@@ -297,7 +297,10 @@ def wave(api, count, case, trial, directory, stopped):
             futures = [pool.submit(api.generate, messages, case['output_tokens'], barrier, deadline)
                        for messages, _ in prepared]
             try:
-                rows = [future.result() for future in futures]
+                rows = [None]*count
+                indexes = {future:i for i,future in enumerate(futures)}
+                for future in as_completed(futures):
+                    rows[indexes[future]] = future.result()
             except (Exception, KeyboardInterrupt):
                 api.cancel()
                 raise
@@ -367,7 +370,7 @@ def execute_case(base, case, root, data, directory, reserve):
     if memory_max < 16*2**30:
         raise RuntimeError('Insufficient memory for an isolated candidate')
     rows = []
-    result = dict(case=case, passed=False)
+    result = dict(case=case, passed=False, memory_limit_bytes=memory_max, transient_unit=unit)
 
     def monitor():
         nonlocal process
@@ -420,6 +423,8 @@ def execute_case(base, case, root, data, directory, reserve):
                 try:
                     health = api.json('/health')
                     if health.get('loaded') is True:
+                        if health.get('api_key') is not True:
+                            raise RuntimeError('Candidate authentication is not enabled')
                         break
                 except (OSError, ValueError, http.client.HTTPException):
                     pass
