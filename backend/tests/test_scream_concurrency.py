@@ -241,6 +241,19 @@ def test_recommendations_exclude_screening_failed_and_short_outputs():
     assert bench.recommendations(variants[1:])['comparisons']==[]
 
 
+def test_recommendations_compare_equal_load_across_different_slot_counts():
+    row=dict(passed=True,tier='capacity',concurrency=4,slots=1,requests=12,
+             output_budget_fraction_median=1,context=65536,turn=0,
+             initial_prompt_target=8192,requested_output_tokens=1024,
+             aggregate_output_tokens_s_median=20,ttft_s_p95=10)
+    faster={**row,'slots':4,'aggregate_output_tokens_s_median':22,'ttft_s_p95':20}
+    unlike={**faster,'concurrency':8,'requests':24}
+    choices=bench.recommendations([row,faster,unlike])['comparisons']
+    matched=next(c for c in choices if c['clients']==4)
+    assert matched['best_aggregate']['slots']==4
+    assert matched['best_first_token_latency']['slots']==1
+
+
 def test_multiturn_wave_keeps_agent_histories_independent(monkeypatch,tmp_path):
     histories=[]
     saved=[]

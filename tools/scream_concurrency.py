@@ -502,6 +502,9 @@ def summarize(results):
                 peak = max(peak, active)
             summaries.append(dict(slots=result['case']['slots'], context=result['case']['context'],
                 concurrency=concurrency, turn=kind, tier=result['case']['tier'], passed=result['passed'],
+                initial_prompt_target=result['case']['target_prompt_tokens']-
+                    (result['case']['output_tokens']+256 if result['case']['turns']>1 else 0),
+                requested_output_tokens=result['case']['output_tokens'],
                 requests=len(rows), aggregate_output_tokens_s_median=statistics.median(rates),
                 ttft_s_median=statistics.median(latencies),
                 ttft_s_p95=latencies[max(0, math.ceil(.95*len(latencies))-1)],
@@ -516,12 +519,16 @@ def summarize(results):
 def recommendations(summary):
     """Compare like-for-like capacity workloads, without declaring a universal winner."""
     eligible = [r for r in summary if r['passed'] and r['tier']=='capacity'
-                and r['concurrency']==r['slots'] and r['requests']>=3*r['slots']
+                and r['requests']>=3*r['concurrency']
                 and r['output_budget_fraction_median']>=.9]
     choices = []
-    for context, turn in sorted({(r['context'],r['turn']) for r in eligible}):
-        rows = [r for r in eligible if (r['context'],r['turn'])==(context,turn)]
-        choices.append(dict(context=context,turn=turn,
+    def workload(row):
+        return (row['context'],row['turn'],row['concurrency'],
+                row.get('initial_prompt_target',0),row.get('requested_output_tokens',0))
+    for key in sorted({workload(r) for r in eligible}):
+        rows = [r for r in eligible if workload(r)==key]
+        choices.append(dict(context=key[0],turn=key[1],clients=key[2],
+            initial_prompt_target=key[3],requested_output_tokens=key[4],
             best_aggregate=min(rows,key=lambda r:-r['aggregate_output_tokens_s_median']),
             best_first_token_latency=min(rows,key=lambda r:r['ttft_s_p95'])))
     return dict(comparisons=choices, notice='Candidates, not production recommendations. '

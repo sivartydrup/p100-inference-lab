@@ -130,8 +130,9 @@ Results include:
   is a coarse order statistic, not a statistically strong service-level estimate.
 
 `summary.json` compares configurations. `candidates.json` identifies the highest
-aggregate throughput and lowest p95 first-token latency for each context/turn
-among successful capacity trials at slot-matched concurrency. It excludes
+aggregate throughput and lowest p95 first-token latency among successful repeated
+trials with the same context, turn, client count, initial prompt target and output
+budget. It never compares unlike client loads as if they were equivalent. It excludes
 screening and runs whose median output is below 90% of the requested budget.
 These are candidates for further testing, not an automatic production change.
 Twice-slot-count waves show queueing behavior separately from slot-matched work.
