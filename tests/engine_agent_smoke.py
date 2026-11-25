@@ -24,6 +24,7 @@ catalog=ManagedModels({'engine_version':'synthetic','gpu':'P100','models':[{
  'quantization':'Q6_K','alias':'synthetic-qwen27b','path':str(model),'initial':params,'limits':params,
 }]},Path('/tmp/selection.env'))
 class Fixture:
+ peers={}  # Only Kmic is configured in this isolated transport fixture.
  ipc_key=os.environ['IPC']
  state='active'
  boot=True
@@ -116,7 +117,9 @@ def main():
         assert stopped['model'] is None and stopped['configured_selection'] == selection and stopped['boot_enabled']
         assert request('/api/engines/kmic/control', {'action': 'start'}, admin=True)[0] == 200
         assert request('/api/engines')[1]['items'][0]['ready'] is True
-        assert request('/api/engines/qr0n/control', {'action': 'start'}, admin=True)[0] == 403
+        assert request('/api/engines/qr0n/control', {'action': 'start'})[0] == 403
+        assert request('/api/engines/qr0n/control', {'action': 'enable_boot'}, admin=True)[0] == 403
+        assert request('/api/engines/qr0n/control', {'action': 'start'}, admin=True)[0] == 503
         print('Engine agent acceptance passed: HTTP/Unix transport, dual authorization, presets, synthetic staging, start, stop and boot changes.')
     finally:
         for container in (name, agent):
