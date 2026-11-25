@@ -336,6 +336,10 @@ def wave(api, count, case, trial, directory, stopped):
         save(directory/f'wave-{count}-{trial}-{turn}.json', rows)
         if stopped.is_set():
             raise RuntimeError('Run aborted')
+        if turn+1 < case['turns'] and case.get('idle_between_turns_s',0):
+            # Hardware/slot monitors continue while native idle parking can occur.
+            if stopped.wait(case['idle_between_turns_s']):
+                raise RuntimeError('Run aborted during inter-turn idle')
     return results
 
 
@@ -585,6 +589,7 @@ def summarize(results):
                 initial_prompt_target=result['case']['target_prompt_tokens']-
                     (result['case']['output_tokens']+256 if result['case']['turns']>1 else 0),
                 requested_output_tokens=result['case']['output_tokens'],
+                idle_between_turns_s=result['case'].get('idle_between_turns_s',0),
                 requests=len(rows), aggregate_output_tokens_s_median=statistics.median(rates),
                 ttft_s_median=statistics.median(latencies),
                 ttft_s_p95=latencies[max(0, math.ceil(.95*len(latencies))-1)],
@@ -607,11 +612,13 @@ def recommendations(summary):
     choices = []
     def workload(row):
         return (row['context'],row['turn'],row['concurrency'],
-                row.get('initial_prompt_target',0),row.get('requested_output_tokens',0))
+                row.get('initial_prompt_target',0),row.get('requested_output_tokens',0),
+                row.get('idle_between_turns_s',0))
     for key in sorted({workload(r) for r in eligible}):
         rows = [r for r in eligible if workload(r)==key]
         choices.append(dict(context=key[0],turn=key[1],clients=key[2],
             initial_prompt_target=key[3],requested_output_tokens=key[4],
+            idle_between_turns_s=key[5],
             best_aggregate=min(rows,key=lambda r:-r['aggregate_output_tokens_s_median']),
             best_first_token_latency=min(rows,key=lambda r:r['ttft_s_p95'])))
     return dict(comparisons=choices, notice='Candidates, not production recommendations. '
@@ -631,11 +638,23 @@ def main():
                         help='Override client counts for matched-load comparisons')
     parser.add_argument('--prompt-tokens', type=int,
                         help='Target initial input length instead of near-limit input')
+    parser.add_argument('--repeats', type=int, choices=range(1,6),
+                        help='Override trial count; fewer than three cannot enter rankings')
+    parser.add_argument('--idle-between-turns', type=int, choices=range(0,301), default=0,
+                        help='Guarded idle seconds before follow-up requests')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--base-profile', type=Path)
     parser.add_argument('--reserve-gib', type=int, choices=range(4,33), default=8)
     args = parser.parse_args()
     cases = matrix(set(args.slots), set(args.contexts), args.tier)
+    if args.repeats:
+        for case in cases:
+            case['repeats'] = args.repeats
+    if args.idle_between_turns:
+        if any(case['turns']<2 for case in cases):
+            parser.error('Inter-turn idle requires a multi-turn capacity workload')
+        for case in cases:
+            case['idle_between_turns_s'] = args.idle_between_turns
     if args.output_tokens:
         for case in cases:
             case['output_tokens'] = args.output_tokens

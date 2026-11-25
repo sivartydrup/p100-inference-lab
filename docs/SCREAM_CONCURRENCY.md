@@ -163,6 +163,13 @@ trials with the same context, turn, client count, initial prompt target and outp
 budget. It never compares unlike client loads as if they were equivalent. It excludes
 screening and runs whose median output is below 90% of the requested budget.
 These are candidates for further testing, not an automatic production change.
+An explicit `--repeats 1` can shorten a focused acceptance probe; it cannot enter
+the repeated-trial rankings. `--idle-between-turns 130` on a capacity workload
+keeps the monitors running during a pause long enough to exercise the pinned
+engine's 120-second idle parking. Check native `cache_n` and follow-up prefill
+timings to distinguish restored KV from a fresh prefill. Idle duration is part of
+the workload comparison key. Expected idle parking makes the conservative
+whole-case residency flag false; use a separate no-parking probe for that claim.
 Performance comparisons can include queued requests; check `context_evidence`
 before making any simultaneous-residency claim. The residency criterion is
 conservative: even a temporary parking event leaves it unconfirmed.

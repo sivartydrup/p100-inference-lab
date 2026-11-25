@@ -130,6 +130,16 @@ def test_prompt_override_cannot_exceed_context_budget(monkeypatch):
     with pytest.raises(SystemExit):bench.main()
 
 
+def test_idle_cache_probe_is_explicit_and_not_automatically_ranked(monkeypatch,capsys):
+    monkeypatch.setattr('sys.argv',['scream_concurrency','--slots','2','--contexts','262144',
+        '--tier','capacity','--clients','2','--repeats','1','--idle-between-turns','130'])
+    bench.main()
+    case=json.loads(capsys.readouterr().out)['cases'][0]
+    assert case['repeats']==1 and case['turns']==2 and case['idle_between_turns_s']==130
+    monkeypatch.setattr('sys.argv',['scream_concurrency','--tier','probe','--idle-between-turns','130'])
+    with pytest.raises(SystemExit):bench.main()
+
+
 @pytest.mark.parametrize('failure', ['heat','power','ram','swap','card_count','model'])
 def test_resource_guard_fails_closed(failure):
     state = sample()
@@ -320,6 +330,16 @@ def test_recommendations_compare_equal_load_across_different_slot_counts():
     matched=next(c for c in choices if c['clients']==4)
     assert matched['best_aggregate']['slots']==4
     assert matched['best_first_token_latency']['slots']==1
+
+
+def test_recommendations_do_not_mix_immediate_and_parked_followups():
+    row=dict(passed=True,tier='capacity',concurrency=2,slots=2,requests=6,
+             output_budget_fraction_median=1,context=262144,turn=1,
+             initial_prompt_target=258816,requested_output_tokens=1024,
+             aggregate_output_tokens_s_median=30,ttft_s_p95=2)
+    parked={**row,'idle_between_turns_s':130,'ttft_s_p95':3}
+    choices=bench.recommendations([row,parked])['comparisons']
+    assert {c['idle_between_turns_s'] for c in choices}=={0,130}
 
 
 def test_multiturn_wave_keeps_agent_histories_independent(monkeypatch,tmp_path):
