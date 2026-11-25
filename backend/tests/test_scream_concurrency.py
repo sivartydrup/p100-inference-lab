@@ -89,6 +89,23 @@ def test_port_probe_reuses_closed_connections_but_refuses_listener(monkeypatch):
     assert bench.idle_window()['available_bytes']==sample()['available_bytes']
 
 
+def test_port_probe_accepts_time_wait_after_an_actual_connection(monkeypatch):
+    monkeypatch.setattr(bench,'fixed',lambda *a:'inactive' if 'systemctl' in a[0] else '')
+    monkeypatch.setattr(bench,'hardware',sample)
+    with bench.socket.socket() as server:
+        server.setsockopt(bench.socket.SOL_SOCKET,bench.socket.SO_REUSEADDR,1)
+        server.bind(('127.0.0.1',0))
+        server.listen()
+        address=server.getsockname()
+        monkeypatch.setattr(bench,'PORT',address[1])
+        with bench.socket.create_connection(address,timeout=2) as client:
+            accepted,_=server.accept()
+            with accepted:
+                accepted.shutdown(bench.socket.SHUT_WR)  # Server actively closes first.
+                assert client.recv(1)==b''
+    assert bench.idle_window()['available_bytes']==sample()['available_bytes']
+
+
 def test_profile_changes_only_test_identity_slots_context_and_rope(tmp_path):
     root=tmp_path/'scream'
     base=dict(exe=str(root/'build/split/strata-split-2'),cwd=str(root/'engine'),api_key='private-original',
