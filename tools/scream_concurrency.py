@@ -101,6 +101,9 @@ def idle_window():
         raise RuntimeError('Both GPUs must be idle and below 60C')
     safe_sample(snapshot, snapshot['swap_used_bytes'], 6)
     with socket.socket() as probe:
+        # TIME_WAIT from the previous candidate is not an active listener.
+        # SO_REUSEADDR still refuses an existing listener on this address/port.
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         probe.bind(('127.0.0.1', PORT))
     return snapshot
 

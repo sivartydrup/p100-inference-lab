@@ -77,6 +77,18 @@ def test_existing_compute_process_refuses(monkeypatch):
     with pytest.raises(RuntimeError,match='no process was stopped'): bench.idle_window()
 
 
+def test_port_probe_reuses_closed_connections_but_refuses_listener(monkeypatch):
+    monkeypatch.setattr(bench,'fixed',lambda *a:'inactive' if 'systemctl' in a[0] else '')
+    monkeypatch.setattr(bench,'hardware',sample)
+    with bench.socket.socket() as server:
+        server.setsockopt(bench.socket.SOL_SOCKET,bench.socket.SO_REUSEADDR,1)
+        server.bind(('127.0.0.1',0))
+        server.listen()
+        monkeypatch.setattr(bench,'PORT',server.getsockname()[1])
+        with pytest.raises(OSError): bench.idle_window()
+    assert bench.idle_window()['available_bytes']==sample()['available_bytes']
+
+
 def test_profile_changes_only_test_identity_slots_context_and_rope(tmp_path):
     root=tmp_path/'scream'
     base=dict(exe=str(root/'build/split/strata-split-2'),cwd=str(root/'engine'),api_key='private-original',
