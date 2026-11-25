@@ -367,6 +367,28 @@ def test_multiturn_wave_keeps_agent_histories_independent(monkeypatch,tmp_path):
         assert history[1]['content']=='SESSION='+history[0]['content']
 
 
+def test_abort_during_idle_prevents_any_followup_request(monkeypatch,tmp_path):
+    calls=[]
+    monkeypatch.setattr(bench,'save',lambda *args:None)
+    monkeypatch.setattr(bench,'prompt',lambda api,target,marker:([{'role':'user','content':marker}],100))
+    class FakeAPI:
+        def generate(self,messages,output,barrier,deadline):
+            barrier.wait(timeout=5)
+            calls.append(1)
+            return dict(text='SESSION='+messages[0]['content'],prompt_tokens=100,completion_tokens=32)
+        def cancel(self): pytest.fail('Valid initial wave cancelled')
+    class AbortInIdle(threading.Event):
+        def wait(self,timeout=None):
+            assert timeout==130
+            self.set()
+            return True
+    case=bench.matrix(slots=[2],contexts=[32768],tier='capacity')[0]
+    case['idle_between_turns_s']=130
+    with pytest.raises(RuntimeError,match='aborted during inter-turn idle'):
+        bench.wave(FakeAPI(),2,case,0,tmp_path,AbortInIdle())
+    assert len(calls)==2
+
+
 def test_candidate_startup_failure_always_cleans_only_owned_unit(monkeypatch,tmp_path):
     state=sample()
     state['available_bytes']=64*2**30

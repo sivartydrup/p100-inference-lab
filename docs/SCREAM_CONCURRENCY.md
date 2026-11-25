@@ -169,7 +169,7 @@ keeps the monitors running during a pause long enough to exercise the pinned
 engine's 120-second idle parking. Check native `cache_n` and follow-up prefill
 timings to distinguish restored KV from a fresh prefill. Idle duration is part of
 the workload comparison key. Expected idle parking makes the conservative
-whole-case residency flag false; use a separate no-parking probe for that claim.
+multi-slot residency flag false; use a separate no-parking probe for that claim.
 Performance comparisons can include queued requests; check `context_evidence`
 before making any simultaneous-residency claim. The residency criterion is
 conservative: even a temporary parking event leaves it unconfirmed.
