@@ -377,9 +377,10 @@ def context_evidence(case, requests, observations, engine_log):
             if slot.get('state') == 'idle':
                 continue
             active += 1
-            count = (slot.get('prompt_read') or 0) if slot.get('state')=='reading' else (
-                     (slot.get('prompt_tokens') or 0)+(slot.get('generated') or 0))
-            full += count >= threshold
+            # The pinned wrapper can briefly expose the previous prompt's progress
+            # when assigning a new reading slot. Only decoding proves prefill done.
+            if slot.get('state') == 'decoding':
+                full += (slot.get('prompt_tokens') or 0)+(slot.get('generated') or 0) >= threshold
         active_peak, full_peak = max(active_peak,active), max(full_peak,full)
     parks = [line for line in engine_log.splitlines() if
              ('K/V pool short' in line or ('paused' in line and 'host memory' in line)

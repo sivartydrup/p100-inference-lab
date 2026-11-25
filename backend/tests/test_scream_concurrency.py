@@ -81,6 +81,17 @@ def test_idle_parking_and_resumes_are_not_silently_omitted():
     assert evidence['resume_events']==1
 
 
+def test_previous_prompt_progress_on_new_reading_slot_is_not_residency_proof():
+    case=bench.matrix(slots=[4],contexts=[262144],tier='probe')[0]
+    case['target_prompt_tokens']=129024
+    slots=[{'state':'decoding','prompt_tokens':129000,'generated':100} for _ in range(3)]
+    slots.append({'state':'reading','prompt_read':129000,'elapsed_s':1})
+    result=bench.context_evidence(case,[],[{'slots':slots}],'')
+    assert result['active_batch_slots_peak']==4
+    assert result['near_full_active_slots_peak']==3
+    assert not result['simultaneous_resident_contexts_confirmed']
+
+
 def test_aggregate_pool_bound_distinguishes_resident_slots_from_queued_clients():
     case=bench.matrix(slots=[2],contexts=[262144],tier='probe')[0]
     bound=bench.pool_evidence(case,'sfnx: K/V pool (int8) 443712 positions free; VRAM free 100 MiB')

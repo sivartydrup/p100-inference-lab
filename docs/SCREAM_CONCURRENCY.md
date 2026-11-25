@@ -152,6 +152,8 @@ Results include:
   decoding states. It has a short HTTP timeout and cannot block the hardware guard.
   The engine log is checked for K/V parking/pausing. These measurements distinguish
   active GPU-resident contexts from server-reported slot counts and time-slicing.
+  Full-context confirmation counts decoding slots only: the pinned wrapper can
+  briefly attach stale prompt-read progress to a newly assigned reading slot.
 - Cold/new-conversation and follow-up results remain separate. A three-trial p95
   is a coarse order statistic, not a statistically strong service-level estimate.
 
