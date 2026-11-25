@@ -85,7 +85,7 @@ def test_port_probe_reuses_closed_connections_but_refuses_listener(monkeypatch):
         server.bind(('127.0.0.1',0))
         server.listen()
         monkeypatch.setattr(bench,'PORT',server.getsockname()[1])
-        with pytest.raises(OSError): bench.idle_window()
+        with pytest.raises(RuntimeError,match='already has a listener'): bench.idle_window()
     assert bench.idle_window()['available_bytes']==sample()['available_bytes']
 
 

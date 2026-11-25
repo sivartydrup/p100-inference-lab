@@ -100,6 +100,10 @@ def idle_window():
            for g in snapshot['gpus']):
         raise RuntimeError('Both GPUs must be idle and below 60C')
     safe_sample(snapshot, snapshot['swap_used_bytes'], 6)
+    with socket.socket() as listener:
+        listener.settimeout(.5)
+        if listener.connect_ex(('127.0.0.1', PORT)) == 0:
+            raise RuntimeError('Candidate port already has a listener')
     with socket.socket() as probe:
         # TIME_WAIT from the previous candidate is not an active listener.
         # SO_REUSEADDR still refuses an existing listener on this address/port.
