@@ -51,6 +51,21 @@ def test_execution_requires_explicit_window_and_paths(monkeypatch):
         bench.main()
 
 
+def test_matched_client_workload_is_explicit_in_offline_plan(monkeypatch,capsys):
+    monkeypatch.setattr('sys.argv',['scream_concurrency','--slots','1','4','--contexts','65536',
+                                  '--tier','capacity','--clients','4','--prompt-tokens','8192'])
+    bench.main()
+    cases=json.loads(capsys.readouterr().out)['cases']
+    assert len(cases)==2 and all(c['concurrency']==[4] for c in cases)
+    assert all(c['target_prompt_tokens']-c['output_tokens']-256==8192 for c in cases)
+
+
+def test_prompt_override_cannot_exceed_context_budget(monkeypatch):
+    monkeypatch.setattr('sys.argv',['scream_concurrency','--contexts','32768','--tier','capacity',
+                                  '--prompt-tokens','32768'])
+    with pytest.raises(SystemExit):bench.main()
+
+
 @pytest.mark.parametrize('failure', ['heat','power','ram','swap','card_count','model'])
 def test_resource_guard_fails_closed(failure):
     state = sample()

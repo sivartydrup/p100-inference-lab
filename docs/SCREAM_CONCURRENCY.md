@@ -87,6 +87,11 @@ than two Tesla P100 PCIe 16GB cards; four-card testing needs a reviewed update.
    allowance. Compare repeated results and then perform representative coding,
    tool-call and sustained-load acceptance before selecting production settings.
    The synthetic workload is not an agentic coding correctness benchmark.
+   For a matched-load comparison, use `--clients 4 --prompt-tokens 8192` with
+   `--tier capacity`: every slot configuration then serves the same four clients
+   with about 8K initial input, three trials and two turns. This is a representative
+   performance workload, not a near-limit capacity demonstration. The override is
+   recorded explicitly; the runner refuses budgets that cannot fit with reserves.
 7. After completion, the candidate is stopped; the runner does **not** start or
    restore any production engine. Choose the desired existing profile and Start
    it explicitly in the dashboard when ready. Production boot settings are untouched.

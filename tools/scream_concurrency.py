@@ -537,6 +537,10 @@ def main():
     parser.add_argument('--contexts', type=int, nargs='+', choices=CONTEXTS, default=list(CONTEXTS))
     parser.add_argument('--tier', choices=('screen','probe','capacity'), default='screen')
     parser.add_argument('--output-tokens', type=int, choices=(256,1024,8192))
+    parser.add_argument('--clients', type=int, nargs='+', choices=range(1,9),
+                        help='Override client counts for matched-load comparisons')
+    parser.add_argument('--prompt-tokens', type=int,
+                        help='Target initial input length instead of near-limit input')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--base-profile', type=Path)
     parser.add_argument('--reserve-gib', type=int, choices=range(4,33), default=8)
@@ -546,6 +550,19 @@ def main():
         for case in cases:
             case['output_tokens'] = args.output_tokens
             case['target_prompt_tokens'] = min(case['target_prompt_tokens'], case['context']-args.output_tokens-1024)
+    if args.clients:
+        for case in cases:
+            case['concurrency'] = sorted(set(args.clients))
+    if args.prompt_tokens is not None:
+        if not 512 <= args.prompt_tokens <= 524288:
+            parser.error('Prompt target must be 512..524288 tokens')
+        for case in cases:
+            reserved = case['output_tokens']+256 if case['turns']>1 else 0
+            budget = args.prompt_tokens+reserved
+            if budget+case['output_tokens']+1024 > case['context']:
+                parser.error('Prompt, follow-up and output reserves do not fit the requested context')
+            case['target_prompt_tokens'] = budget
+            case['initial_prompt_override'] = args.prompt_tokens
     if not args.execute:
         print(json.dumps(dict(execution_enabled=False, cases=cases,
                               notice='Offline plan only. No network, subprocess or hardware access.'), indent=2))
