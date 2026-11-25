@@ -382,7 +382,8 @@ def context_evidence(case, requests, observations, engine_log):
             full += count >= threshold
         active_peak, full_peak = max(active_peak,active), max(full_peak,full)
     parks = [line for line in engine_log.splitlines() if
-             ('K/V pool short' in line or ('paused' in line and 'host memory' in line))]
+             ('K/V pool short' in line or ('paused' in line and 'host memory' in line)
+              or ('sfnx:' in line and 'idle' in line and 'conversation parked' in line))]
     if case['slots']==1:
         confirmed = any(row['prompt_tokens']>=threshold for row in requests)
     else:
@@ -390,6 +391,8 @@ def context_evidence(case, requests, observations, engine_log):
     return dict(samples=len(observations), active_batch_slots_peak=active_peak,
                 engine_context_limit=case['context'], requested_initial_prompt_tokens=initial,
                 near_full_active_slots_peak=full_peak, parking_events=len(parks),
+                idle_parking_events=sum('idle' in line for line in parks),
+                resume_events=sum('sfnx: slot ' in line and ' resumed:' in line for line in engine_log.splitlines()),
                 simultaneous_resident_contexts_confirmed=confirmed,
                 notice='Request success, stream overlap and resident context capacity are separate evidence. '
                        'Confirmation covers the requested input target, not unused engine window space. '

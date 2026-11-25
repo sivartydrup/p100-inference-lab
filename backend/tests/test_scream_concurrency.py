@@ -71,6 +71,16 @@ def test_small_input_target_cannot_be_proven_by_empty_reading_slots():
     assert not bench.context_evidence(case,[],empty,'')['simultaneous_resident_contexts_confirmed']
 
 
+def test_idle_parking_and_resumes_are_not_silently_omitted():
+    case=bench.matrix(slots=[2],contexts=[131072],tier='probe')[0]
+    log=('sfnx: slot 0 idle 120 s while experts are lent: its conversation parked\n'
+         'sfnx: slot 1 resumed: its 129000 tokens reloaded in 100 ms\n'
+         'conversation cache: too large: not parked\n')
+    evidence=bench.context_evidence(case,[],[],log)
+    assert evidence['parking_events']==evidence['idle_parking_events']==1
+    assert evidence['resume_events']==1
+
+
 def test_aggregate_pool_bound_distinguishes_resident_slots_from_queued_clients():
     case=bench.matrix(slots=[2],contexts=[262144],tier='probe')[0]
     bound=bench.pool_evidence(case,'sfnx: K/V pool (int8) 443712 positions free; VRAM free 100 MiB')
