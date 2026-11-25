@@ -369,7 +369,7 @@ def verify_cgroup(unit, memory_max):
 def context_evidence(case, requests, observations, engine_log):
     """Successful HTTP waves alone never prove simultaneous GPU residency."""
     initial = case['target_prompt_tokens']-(case['output_tokens']+256 if case['turns']>1 else 0)
-    threshold = initial-1024
+    threshold = max(1,initial-min(1024,max(1,initial//50)))
     active_peak = full_peak = 0
     for sample in observations:
         active = full = 0

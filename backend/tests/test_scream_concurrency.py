@@ -64,6 +64,13 @@ def test_input_target_and_engine_allocation_limit_are_distinct():
     assert result['engine_context_limit']==262144 and result['requested_initial_prompt_tokens']==129024
 
 
+def test_small_input_target_cannot_be_proven_by_empty_reading_slots():
+    case=bench.matrix(slots=[2],contexts=[32768],tier='probe')[0]
+    case.update(target_prompt_tokens=512,initial_prompt_override=512)
+    empty=[{'slots':[{'state':'reading','prompt_read':0} for _ in range(2)]}]
+    assert not bench.context_evidence(case,[],empty,'')['simultaneous_resident_contexts_confirmed']
+
+
 def test_aggregate_pool_bound_distinguishes_resident_slots_from_queued_clients():
     case=bench.matrix(slots=[2],contexts=[262144],tier='probe')[0]
     bound=bench.pool_evidence(case,'sfnx: K/V pool (int8) 443712 positions free; VRAM free 100 MiB')
