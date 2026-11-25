@@ -22,6 +22,7 @@ A successful short request is not evidence of full-context capacity.
 | Requested context per request | 32,768; 65,536; 131,072; 262,144; 524,288 |
 | Simultaneous clients | 1, slot count, twice the slot count (deduplicated) |
 | Screening | About 8K input tokens, up to 256 output, one trial, one turn |
+| Capacity probe | Near-limit input in every slot simultaneously, up to 256 output, one wave, one turn |
 | Capacity | Near context limit with output/follow-up reserve, up to 1,024 output, three trials, two turns |
 | Longer output check | Optional `--output-tokens 8192`; input reserve adjusts accordingly |
 
@@ -70,7 +71,10 @@ than two Tesla P100 PCIe 16GB cards; four-card testing needs a reviewed update.
    loads and can take hours. Start with 32K/64K and grow the selection if the
    available window is short. Never treat an interrupted/unattempted case as
    an unsupported capacity result.
-5. For screen survivors, run capacity tests with explicit smaller selections:
+5. For screen survivors, first use `--tier probe` for one near-limit simultaneous
+   wave at slot-matched concurrency. This identifies capacity failures before
+   spending hours on repeated long prompts. A probe is not eligible for automatic
+   candidate comparisons. Then run repeated capacity tests on the survivors:
 
    ```bash
    python3 tools/scream_concurrency.py --execute --window-confirmed \

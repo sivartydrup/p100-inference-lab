@@ -30,6 +30,13 @@ def test_matrix_distinguishes_capacity_from_short_screen():
         assert case['concurrency']==sorted({1,case['slots'],2*case['slots']})
 
 
+def test_capacity_probe_is_near_limit_but_not_a_repeated_performance_result():
+    case=bench.matrix(slots=[2],contexts=[262144],tier='probe')[0]
+    assert case['target_prompt_tokens']==262144-2048
+    assert case['concurrency']==[2] and case['repeats']==case['turns']==1
+    assert case['output_tokens']==256
+
+
 def test_default_cli_is_offline(monkeypatch, capsys):
     monkeypatch.setattr('sys.argv', ['scream_concurrency'])
     monkeypatch.setattr(bench.subprocess, 'run', lambda *a,**k: pytest.fail('Subprocess in offline plan'))

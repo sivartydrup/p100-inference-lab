@@ -35,11 +35,11 @@ UNITS = ('kmic-qwen27b', 'p100-lab-kmic-moe', 'p100-lab-strata',
 def matrix(slots=SLOTS, contexts=CONTEXTS, tier='screen'):
     """Context is requested per slot; observed context/slots must match at runtime."""
     return [dict(slots=s, context=c, tier=tier,
-                 concurrency=sorted({1, s, 2*s}),
+                 concurrency=[s] if tier == 'probe' else sorted({1, s, 2*s}),
                  target_prompt_tokens=min(8192, c-2048) if tier == 'screen' else c-2048,
-                 output_tokens=256 if tier == 'screen' else 1024,
-                 repeats=1 if tier == 'screen' else 3,
-                 turns=1 if tier == 'screen' else 2)
+                 output_tokens=1024 if tier == 'capacity' else 256,
+                 repeats=3 if tier == 'capacity' else 1,
+                 turns=2 if tier == 'capacity' else 1)
             for s in sorted(slots) for c in sorted(contexts)]
 
 
@@ -535,7 +535,7 @@ def main():
     parser.add_argument('--window-confirmed', action='store_true')
     parser.add_argument('--slots', type=int, nargs='+', choices=SLOTS, default=list(SLOTS))
     parser.add_argument('--contexts', type=int, nargs='+', choices=CONTEXTS, default=list(CONTEXTS))
-    parser.add_argument('--tier', choices=('screen','capacity'), default='screen')
+    parser.add_argument('--tier', choices=('screen','probe','capacity'), default='screen')
     parser.add_argument('--output-tokens', type=int, choices=(256,1024,8192))
     parser.add_argument('--output', type=Path)
     parser.add_argument('--base-profile', type=Path)
