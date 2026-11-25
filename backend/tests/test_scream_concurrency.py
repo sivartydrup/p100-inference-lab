@@ -54,6 +54,16 @@ def test_single_context_proof_requires_a_completed_near_limit_request():
     assert bench.context_evidence(case,[{'prompt_tokens':129000}],[], '')['simultaneous_resident_contexts_confirmed']
 
 
+def test_input_target_and_engine_allocation_limit_are_distinct():
+    case=bench.matrix(slots=[4],contexts=[262144],tier='probe')[0]
+    observations=[{'slots':[{'state':'decoding','prompt_tokens':129000,'generated':1} for _ in range(4)]}]
+    assert not bench.context_evidence(case,[],observations,'')['simultaneous_resident_contexts_confirmed']
+    case.update(target_prompt_tokens=129024,initial_prompt_override=129024)
+    result=bench.context_evidence(case,[],observations,'')
+    assert result['simultaneous_resident_contexts_confirmed']
+    assert result['engine_context_limit']==262144 and result['requested_initial_prompt_tokens']==129024
+
+
 def test_aggregate_pool_bound_distinguishes_resident_slots_from_queued_clients():
     case=bench.matrix(slots=[2],contexts=[262144],tier='probe')[0]
     bound=bench.pool_evidence(case,'sfnx: K/V pool (int8) 443712 positions free; VRAM free 100 MiB')
@@ -224,7 +234,7 @@ def test_stream_ignores_role_frame_and_requires_usage_and_done(monkeypatch):
             for event in [{'choices':[{'delta':{'role':'assistant'}}]},
                           {'choices':[{'delta':{'content':'SESSION=x'}}]},
                           {'choices':[{'delta':{'content':' example'},'finish_reason':'length'}]},
-                          {'choices':[],'usage':{'prompt_tokens':100,'completion_tokens':3}}]:
+                          {'choices':[],'usage':{'prompt_tokens':100,'completion_tokens':3},'timings':{'cache_n':0,'prompt_ms':10}}]:
                 self.wfile.write(('data: '+json.dumps(event)+'\n\n').encode())
             self.wfile.write(b'data: [DONE]\n\n')
         def log_message(self,*args): pass
@@ -237,6 +247,7 @@ def test_stream_ignores_role_frame_and_requires_usage_and_done(monkeypatch):
         row=api.generate([{'role':'user','content':'test'}],256,threading.Barrier(1),bench.time.monotonic()+10)
         assert row['text']=='SESSION=x example' and row['completion_tokens']==3
         assert row['ttft_s']>=0 and row['prompt_tokens']==100
+        assert row['engine_timings']=={'cache_n':0,'prompt_ms':10}
     finally:
         server.shutdown(); server.server_close(); thread.join()
 

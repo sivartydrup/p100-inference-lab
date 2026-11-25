@@ -216,6 +216,7 @@ class API:
                 raise RuntimeError('Generation HTTP status '+str(response.status))
             first = content_first = last = None
             text, usage, finish, done = '', None, None, False
+            timings = None
             while True:
                 if self.stopped.is_set() or time.monotonic() > deadline:
                     raise RuntimeError('Generation cancelled or deadline reached')
@@ -235,6 +236,8 @@ class API:
                 if event.get('error'):
                     raise RuntimeError('Candidate emitted a stream error')
                 usage = event.get('usage') or usage
+                if isinstance(event.get('timings'),dict):
+                    timings = event['timings']
                 for choice in event.get('choices', []):
                     delta = choice.get('delta', {})
                     now = time.monotonic()
@@ -257,7 +260,7 @@ class API:
                         wall_s=ended-started, completion_tokens=n, prompt_tokens=usage['prompt_tokens'],
                         decode_tokens_s=(n-1)/(last-first) if n>1 and last>first else None,
                         finish_reason=finish, output_sha256=hashlib.sha256(text.encode()).hexdigest(),
-                        text=text)
+                        engine_timings=timings, text=text)
         finally:
             self.close(connection)
 
@@ -365,6 +368,8 @@ def verify_cgroup(unit, memory_max):
 
 def context_evidence(case, requests, observations, engine_log):
     """Successful HTTP waves alone never prove simultaneous GPU residency."""
+    initial = case['target_prompt_tokens']-(case['output_tokens']+256 if case['turns']>1 else 0)
+    threshold = initial-1024
     active_peak = full_peak = 0
     for sample in observations:
         active = full = 0
@@ -374,18 +379,20 @@ def context_evidence(case, requests, observations, engine_log):
             active += 1
             count = (slot.get('prompt_read') or 0) if slot.get('state')=='reading' else (
                      (slot.get('prompt_tokens') or 0)+(slot.get('generated') or 0))
-            full += count >= case['context']-3072
+            full += count >= threshold
         active_peak, full_peak = max(active_peak,active), max(full_peak,full)
     parks = [line for line in engine_log.splitlines() if
              ('K/V pool short' in line or ('paused' in line and 'host memory' in line))]
     if case['slots']==1:
-        confirmed = any(row['prompt_tokens']>=case['context']-3072 for row in requests)
+        confirmed = any(row['prompt_tokens']>=threshold for row in requests)
     else:
         confirmed = full_peak>=case['slots'] and not parks
     return dict(samples=len(observations), active_batch_slots_peak=active_peak,
+                engine_context_limit=case['context'], requested_initial_prompt_tokens=initial,
                 near_full_active_slots_peak=full_peak, parking_events=len(parks),
                 simultaneous_resident_contexts_confirmed=confirmed,
                 notice='Request success, stream overlap and resident context capacity are separate evidence. '
+                       'Confirmation covers the requested input target, not unused engine window space. '
                        'Missing observations or any parking makes multi-slot residency unconfirmed.')
 
 

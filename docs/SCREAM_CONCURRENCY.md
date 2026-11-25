@@ -40,6 +40,12 @@ requests or park conversations in host memory when its K/V pool is short.
 parking events. Multi-slot residency is confirmed only when all requested slots
 are observed near-full together and no parking is logged. Missing samples or
 parking leave residency unconfirmed, even when every request completes.
+The engine context limit also sizes its shared K/V allocation; it is not a
+guarantee that every slot can use that entire window together. Engine window and
+tested initial input target are recorded separately. For example, a server window
+of 262144 with `--prompt-tokens 129024` probes roughly 128K per client while
+allocating the larger shared pool. Confirmation then covers those input targets,
+not four full 256K windows. Keep client budgets explicit when using such a recipe.
 For probes, the runner also records the pinned engine's advertised aggregate
 free/lendable K/V positions. If that necessary bound is below the requested
 simultaneous input/output occupancy, it skips the measured wave and records the
@@ -133,6 +139,8 @@ Results include:
 - Per request: actual input/output tokens, time to the first content **or
   reasoning** token (ignoring role-only frames), first content latency, total
   latency, finish reason, streamed decode-rate estimate and output digest.
+  Optional engine timing fields retain self-reported cached/read token counts and
+  native prefill/decode time; client wall-clock measurements remain separate.
 - Per wave: aggregate output tokens divided by the synchronized wave's makespan,
   including prefill and queueing; latency median/p95; observed overlap of generated
   response streams. Streaming overlap is a scheduling signal, not kernel profiling.
