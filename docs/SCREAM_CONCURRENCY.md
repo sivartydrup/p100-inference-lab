@@ -34,6 +34,13 @@ conversations concurrently to test whether that reported context is really
 usable per request. The 512K cases retain the current YaRN x2 extension; shorter
 cases remove it. Context-extension quality is a separate question.
 
+**HTTP success alone is not a resident-capacity pass.** The engine can queue
+requests or park conversations in host memory when its K/V pool is short.
+`context_evidence` separately records active slots, near-full active slots and
+parking events. Multi-slot residency is confirmed only when all requested slots
+are observed near-full together and no parking is logged. Missing samples or
+parking leave residency unconfirmed, even when every request completes.
+
 Keep one baseline memory recipe fixed across a matrix. The runner copies the
 selected private base profile, preserving MTP, lookup, conversation cache,
 expert-placement and memory settings. Comparing the existing 256K low-RAM recipe
@@ -126,6 +133,10 @@ Results include:
 - Once-per-second telemetry: per-GPU UUID, temperature, power, VRAM and utilization;
   host available/total RAM, swap and load. The summary retains resource peaks and
   the minimum RAM reserve. It does not label sampled power as energy consumption.
+- Independent read-only slot sampling twice per second records actual reading and
+  decoding states. It has a short HTTP timeout and cannot block the hardware guard.
+  The engine log is checked for K/V parking/pausing. These measurements distinguish
+  active GPU-resident contexts from server-reported slot counts and time-slicing.
 - Cold/new-conversation and follow-up results remain separate. A three-trial p95
   is a coarse order statistic, not a statistically strong service-level estimate.
 
@@ -135,6 +146,9 @@ trials with the same context, turn, client count, initial prompt target and outp
 budget. It never compares unlike client loads as if they were equivalent. It excludes
 screening and runs whose median output is below 90% of the requested budget.
 These are candidates for further testing, not an automatic production change.
+Performance comparisons can include queued requests; check `context_evidence`
+before making any simultaneous-residency claim. The residency criterion is
+conservative: even a temporary parking event leaves it unconfirmed.
 Twice-slot-count waves show queueing behavior separately from slot-matched work.
 
 ## Containment, aborts and evidence
