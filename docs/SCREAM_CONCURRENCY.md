@@ -133,6 +133,9 @@ Each candidate uses a uniquely named **transient user service**, its own private
 profile/credential/logs, and authenticated loopback port 18087. There is no new
 LAN listener, Docker change, persistent unit or daemon reload. The runner never
 changes a fan mode, GPU power limit, persistence setting, driver or boot policy.
+A private runtime lock prevents two copies of this runner from executing at once.
+Keep other agents stopped throughout the window; this lock is not a lock shared
+with arbitrary external launchers.
 
 The transient service has `MemoryMax` equal to initially available host RAM minus
 the reserve, `MemorySwapMax=0`, a four-hour ceiling and cgroup-wide termination.

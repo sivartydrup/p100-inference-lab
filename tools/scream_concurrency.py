@@ -17,6 +17,7 @@ from pathlib import Path
 import secrets
 import signal
 import socket
+import stat
 import statistics
 import subprocess
 import threading
@@ -548,6 +549,20 @@ def main():
         parser.error('Execute as the non-root Ubuntu engine owner')
     os.umask(0o077)
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+    import fcntl  # Linux execution only; offline planning remains portable.
+    lock_path = Path('/run/user')/str(os.getuid())/'p100-concurrency.lock'
+    descriptor = os.open(lock_path, os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW|os.O_CLOEXEC, 0o600)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise RuntimeError('Unsafe experiment lock')
+        fcntl.flock(descriptor, fcntl.LOCK_EX|fcntl.LOCK_NB)
+        return run_matrix(args, cases)
+    finally:
+        os.close(descriptor)
+
+
+def run_matrix(args, cases):
     root = Path.home()/'inference/scream-p100'
     data = Path.home()/'inference/scream-flash-next'
     base = json.loads(args.base_profile.read_text())
