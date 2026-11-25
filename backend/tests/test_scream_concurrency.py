@@ -37,6 +37,23 @@ def test_capacity_probe_is_near_limit_but_not_a_repeated_performance_result():
     assert case['output_tokens']==256
 
 
+def test_context_proof_refuses_queued_or_parked_conversations():
+    case=bench.matrix(slots=[2],contexts=[131072],tier='probe')[0]
+    queued=[{'slots':[{'state':'idle','held_tokens':129000},{'state':'reading','prompt_read':100}]}]
+    assert not bench.context_evidence(case,[],queued,'')['simultaneous_resident_contexts_confirmed']
+    both=[{'slots':[{'state':'decoding','prompt_tokens':129000,'generated':1},
+                    {'state':'decoding','prompt_tokens':129000,'generated':1}]}]
+    assert bench.context_evidence(case,[],both,'')['simultaneous_resident_contexts_confirmed']
+    parked=bench.context_evidence(case,[],both,"sfnx: K/V pool short: slot 0's conversation parked")
+    assert not parked['simultaneous_resident_contexts_confirmed'] and parked['parking_events']==1
+
+
+def test_single_context_proof_requires_a_completed_near_limit_request():
+    case=bench.matrix(slots=[1],contexts=[131072],tier='probe')[0]
+    assert not bench.context_evidence(case,[{'prompt_tokens':8192}],[], '')['simultaneous_resident_contexts_confirmed']
+    assert bench.context_evidence(case,[{'prompt_tokens':129000}],[], '')['simultaneous_resident_contexts_confirmed']
+
+
 def test_default_cli_is_offline(monkeypatch, capsys):
     monkeypatch.setattr('sys.argv', ['scream_concurrency'])
     monkeypatch.setattr(bench.subprocess, 'run', lambda *a,**k: pytest.fail('Subprocess in offline plan'))

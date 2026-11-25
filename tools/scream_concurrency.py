@@ -183,9 +183,9 @@ class API:
                     except OSError:
                         pass
 
-    def json(self, path, payload=None):
+    def json(self, path, payload=None, timeout=60):
         connection = self.connection()
-        connection.timeout = 60  # Large count-only requests can be CPU-bound.
+        connection.timeout = timeout  # Large count-only requests can be CPU-bound.
         try:
             self.connect(connection)
             connection.request('GET' if payload is None else 'POST', path,
@@ -362,6 +362,32 @@ def verify_cgroup(unit, memory_max):
         raise RuntimeError('Effective candidate memory/swap limits not enforced')
 
 
+def context_evidence(case, requests, observations, engine_log):
+    """Successful HTTP waves alone never prove simultaneous GPU residency."""
+    active_peak = full_peak = 0
+    for sample in observations:
+        active = full = 0
+        for slot in sample.get('slots', []):
+            if slot.get('state') == 'idle':
+                continue
+            active += 1
+            count = (slot.get('prompt_read') or 0) if slot.get('state')=='reading' else (
+                     (slot.get('prompt_tokens') or 0)+(slot.get('generated') or 0))
+            full += count >= case['context']-3072
+        active_peak, full_peak = max(active_peak,active), max(full_peak,full)
+    parks = [line for line in engine_log.splitlines() if
+             ('K/V pool short' in line or ('paused' in line and 'host memory' in line))]
+    if case['slots']==1:
+        confirmed = any(row['prompt_tokens']>=case['context']-3072 for row in requests)
+    else:
+        confirmed = full_peak>=case['slots'] and not parks
+    return dict(samples=len(observations), active_batch_slots_peak=active_peak,
+                near_full_active_slots_peak=full_peak, parking_events=len(parks),
+                simultaneous_resident_contexts_confirmed=confirmed,
+                notice='Request success, stream overlap and resident context capacity are separate evidence. '
+                       'Missing observations or any parking makes multi-slot residency unconfirmed.')
+
+
 def execute_case(base, case, root, data, directory, reserve):
     initial = idle_window()
     directory.mkdir(mode=0o700)
@@ -378,6 +404,7 @@ def execute_case(base, case, root, data, directory, reserve):
     if memory_max < 16*2**30:
         raise RuntimeError('Insufficient memory for an isolated candidate')
     rows = []
+    slot_samples = []
     result = dict(case=case, passed=False, memory_limit_bytes=memory_max, transient_unit=unit)
 
     def monitor():
@@ -400,6 +427,22 @@ def execute_case(base, case, root, data, directory, reserve):
                 monitor_done.wait(1)
 
     thread = threading.Thread(target=monitor, daemon=True)
+    observer = None
+
+    def observe(api):
+        with (directory/'slots.jsonl').open('x') as stream:
+            os.fchmod(stream.fileno(),0o600)
+            while not monitor_done.is_set():
+                try:
+                    live = api.json('/metrics',timeout=2).get('live',{})
+                    sample = dict(monotonic=time.monotonic(), slots=live.get('slots',[]),
+                                  running=live.get('running'),waiting=live.get('waiting'),
+                                  outside_slots=live.get('outside_slots'),prompt_read=live.get('prompt_read'))
+                    slot_samples.append(sample)
+                    stream.write(json.dumps(sample)+'\n');stream.flush()
+                except Exception:
+                    pass  # Sampling gaps do not disable the independent hardware guard.
+                monitor_done.wait(.5)
     try:
         with (directory/'server.private.log').open('x') as log:
             os.fchmod(log.fileno(), 0o600)
@@ -452,6 +495,8 @@ def execute_case(base, case, root, data, directory, reserve):
             warmup = api.generate([{'role':'user','content':'Say ready.'}], 32, threading.Barrier(1), time.monotonic()+120)
             warmup.pop('text')
             save(directory/'warmup.json', warmup)
+            observer = threading.Thread(target=observe,args=(api,),daemon=True)
+            observer.start()
             for count in case['concurrency']:
                 for trial in range(case['repeats']):
                     if stopped.is_set():
@@ -467,6 +512,11 @@ def execute_case(base, case, root, data, directory, reserve):
         monitor_done.set()
         if thread.ident:
             thread.join(timeout=12)
+        if observer is not None:
+            observer.join(timeout=4)
+        log_path = directory/'engine.log'
+        result['context_evidence'] = context_evidence(case,rows,slot_samples,
+            log_path.read_text(errors='replace') if log_path.exists() else '')
         result['guard_errors'] = failure
         samples = [json.loads(line) for line in (directory/'telemetry.jsonl').read_text().splitlines()] if thread.ident else []
         if samples:
@@ -512,6 +562,7 @@ def summarize(results):
                 peak_overlapping_generated_streams=peak,
                 output_budget_fraction_median=statistics.median(r['completion_tokens']/r['requested_output_tokens'] for r in rows),
                 resources=result.get('resources'),
+                context_evidence=result.get('context_evidence'),
                 notice='End-to-end throughput includes prefill/queueing; decode rate is based on streamed token counts, not per-token timestamps.'))
     return summaries
 
