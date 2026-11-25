@@ -1,5 +1,10 @@
 # Scream P100 Flash-Next
 
+For offline preparation of slot/context experiments, see the
+[concurrency test plan](SCREAM_CONCURRENCY.md). Its execution mode is reserved
+for an operator-confirmed maintenance window; preparation does not interrupt
+the serving engine.
+
 Use **Scream P100** in Engine services. Stop the running engine and wait
 for both cards to become idle, then start Scream and wait for **Ready**.
 Select **Flash Next IQ3_S 256K (Scream P100)** in Model library to see the
