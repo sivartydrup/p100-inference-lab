@@ -1,0 +1,12 @@
+[Unit]
+Description=Strata Flash-Next inference on the two P100s
+After=kmic-qwen27b.service
+
+[Service]
+Type=exec
+UMask=0077
+NoNewPrivileges=yes
+WorkingDirectory=%h/inference/strata-0.2.18
+ExecStartPre=/bin/sh %h/.config/p100-gateway/gpu-engine-idle.sh %n
+ExecStart=%h/.local/bin/strata serve --profile %h/inference/strata-0.2.18/profile.json --host 127.0.0.1 --port 8081 --parallel 1 --offline
+TimeoutStopSec=45

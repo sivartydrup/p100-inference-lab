@@ -1,0 +1,13 @@
+[Unit]
+Description=Inkling 2 Mini inference on the two P100s
+
+[Service]
+Type=exec
+UMask=0077
+NoNewPrivileges=yes
+RuntimeDirectory=p100-lab-inkling
+RuntimeDirectoryMode=0700
+Environment=LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64
+ExecStartPre=/bin/sh %h/.config/p100-gateway/gpu-engine-idle.sh %n
+ExecStart=%h/inference/models/inkling-2-mini-nvfp4/venv/bin/python %h/.config/p100-gateway/inkling-server.py %t/p100-lab-inkling/engine.sock
+TimeoutStopSec=30

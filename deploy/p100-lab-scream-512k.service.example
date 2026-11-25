@@ -1,0 +1,15 @@
+[Unit]
+Description=Scream P100 Flash-Next IQ3_S 512K inference
+ConditionPathExists=%h/inference/scream-flash-next-512k/profile.json
+
+[Service]
+Type=exec
+UMask=0077
+NoNewPrivileges=yes
+WorkingDirectory=%h/inference/scream-p100
+Environment=LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64
+ExecStartPre=/bin/sh %h/.config/p100-gateway/gpu-engine-idle.sh %n
+ExecStart=/bin/bash %h/inference/scream-p100/run.sh %h/inference/scream-flash-next --config %h/inference/scream-flash-next-512k/profile.json --host 127.0.0.1 --port 8087
+MemoryMax=92G
+MemorySwapMax=0
+TimeoutStopSec=45

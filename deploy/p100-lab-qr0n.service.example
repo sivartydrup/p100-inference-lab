@@ -1,0 +1,12 @@
+[Unit]
+Description=qr0n Qwen3.8-27B inference on two P100s
+
+[Service]
+Type=exec
+UMask=0077
+NoNewPrivileges=yes
+Environment=CUDA_VISIBLE_DEVICES=0,1
+WorkingDirectory=%h/inference/qr0n-p100/llama.cpp
+ExecStartPre=/bin/sh %h/.config/p100-gateway/gpu-engine-idle.sh %n
+ExecStart=%h/inference/qr0n-p100/llama.cpp/build/bin/llama-server --host 127.0.0.1 --port 8083 --api-key-file %h/.config/p100-gateway/qr0n-key -m %h/inference/models/Qwen3.8-27B-UD-Q6_K.gguf -a qr0n-qwen3.8-27b -ngl 99 -sm layer -ts 1,1 -fa on -c 32768 -ctk q8_0 -ctv q8_0 -np 1 -b 1024 -ub 512 --jinja --no-webui
+TimeoutStopSec=45

@@ -1,0 +1,119 @@
+{
+  "key_file": "/home/YOUR_USER/.config/p100-gateway/gateway-key",
+  "upstreams": {
+    "kmic": {
+      "url": "http://192.168.0.188:8080",
+      "key_file": "/home/YOUR_USER/.config/kmic-qwen27b/api-key"
+    },
+    "strata": {
+      "url": "http://127.0.0.1:8081",
+      "key_file": "/home/YOUR_USER/inference/strata-0.2.18/inference-key"
+    },
+    "pxa": {
+      "url": "http://127.0.0.1:8082",
+      "key_file": "/home/YOUR_USER/.config/p100-gateway/pxa-key"
+    },
+    "qr0n": {
+      "url": "http://127.0.0.1:8083",
+      "key_file": "/home/YOUR_USER/.config/p100-gateway/qr0n-key"
+    },
+    "kmic-moe": {
+      "url": "http://127.0.0.1:8084",
+      "key_file": "/home/YOUR_USER/inference/kmic-moe-p100/inference-key"
+    },
+    "scream": {
+      "url": "http://127.0.0.1:8085",
+      "key_file": "/home/YOUR_USER/inference/scream-flash-next/inference-key"
+    },
+    "inkling": {
+      "url": "http://127.0.0.1:8086",
+      "key_file": "/home/YOUR_USER/.config/p100-gateway/inkling-key"
+    },
+    "scream-512k": {
+      "url": "http://127.0.0.1:8087",
+      "key_file": "/home/YOUR_USER/inference/scream-flash-next-512k/inference-key"
+    }
+  },
+  "models": {
+    "qwen3.8-flash-next-unsloth-ud-iq3_xxs": {
+      "engine": "strata",
+      "name": "Flash Next 256K (Strata)",
+      "context": 262144,
+      "max_output": 4096,
+      "reasoning": true
+    },
+    "qwen3.8-27b-p100": {
+      "engine": "kmic",
+      "name": "Qwen3.8 27B (Kmic)",
+      "context": 262144,
+      "max_output": 4096,
+      "reasoning": true
+    },
+    "flash-next-fast": {
+      "engine": "kmic",
+      "name": "Flash Next Fast (Kmic)",
+      "context": 32768,
+      "max_output": 2048,
+      "reasoning": false
+    },
+    "flash-next-reasoning": {
+      "engine": "kmic",
+      "name": "Flash Next Reasoning (Kmic)",
+      "context": 32768,
+      "max_output": 4096,
+      "reasoning": true
+    },
+    "flash-next-full-context": {
+      "engine": "kmic",
+      "name": "Flash Next 256K (Kmic)",
+      "context": 262144,
+      "max_output": 4096,
+      "reasoning": true
+    },
+    "pxa-qwen3.8-27b": {
+      "engine": "pxa",
+      "name": "Qwen3.8 27B (PXA)",
+      "context": 32768,
+      "max_output": 4096,
+      "reasoning": true
+    },
+    "qr0n-qwen3.8-27b": {
+      "engine": "qr0n",
+      "name": "Qwen3.8 27B (qr0n)",
+      "context": 32768,
+      "max_output": 4096,
+      "reasoning": true
+    },
+    "flash-next-moe": {
+      "engine": "kmic-moe",
+      "name": "Flash Next 256K (Kmic MoE)",
+      "context": 262144,
+      "max_output": 4096,
+      "reasoning": true
+    },
+    "scream-flash-next-iq3-s": {
+      "engine": "scream",
+      "name": "Flash Next IQ3_S 256K (Scream P100)",
+      "context": 262144,
+      "max_output": 4096,
+      "reasoning": true,
+      "vision": true
+    },
+    "inkling2-mini": {
+      "engine": "inkling",
+      "name": "Inkling 2 Mini",
+      "context": 262144,
+      "max_output": 4096,
+      "reasoning": true,
+      "vision": true
+    },
+    "scream-flash-next-iq3-s-512k": {
+      "engine": "scream-512k",
+      "name": "Flash-Next IQ3_S 512K (Scream P100)",
+      "context": 524288,
+      "max_output": 8192,
+      "reasoning": true,
+      "vision": true
+    }
+  }
+}

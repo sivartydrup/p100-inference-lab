@@ -54,7 +54,7 @@ def test_adapter_is_read_only():
     with patch("lab.adapters.run") as run:
         run.return_value.stdout = "active"
         assert NativeAdapter("kmic").status()["state"] == "active"
-        run.assert_called_once_with(["systemctl", "--user", "is-active", "p100-lab-kmic.service"])
+        run.assert_called_once_with(["systemctl", "--user", "is-active", "kmic-qwen27b.service"])
     with pytest.raises(ValueError):
         NativeAdapter("kmic; id")
 

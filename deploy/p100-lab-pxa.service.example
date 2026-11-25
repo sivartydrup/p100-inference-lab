@@ -1,0 +1,13 @@
+[Unit]
+Description=PXA Qwen3.8-27B inference on two P100s
+
+[Service]
+Type=exec
+UMask=0077
+NoNewPrivileges=yes
+Environment=CUDA_VISIBLE_DEVICES=0,1
+WorkingDirectory=%h/inference/pxa-release/pxa-v4.0.4
+Environment=LD_LIBRARY_PATH=%h/inference/pxa-release/pxa-v4.0.4/bin
+ExecStartPre=/bin/sh %h/.config/p100-gateway/gpu-engine-idle.sh %n
+ExecStart=%h/inference/pxa-release/pxa-v4.0.4/bin/llama-server --host 127.0.0.1 --port 8082 --api-key-file %h/.config/p100-gateway/pxa-key -m %h/inference/models/Qwen3.8-27B-UD-Q6_K.gguf -a pxa-qwen3.8-27b -ngl 99 -sm layer -ts 1,1 -fa on -c 32768 -ctk q8_0 -ctv q8_0 -np 1 -b 1024 -ub 512 --jinja
+TimeoutStopSec=45

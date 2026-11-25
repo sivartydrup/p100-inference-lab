@@ -8,7 +8,7 @@ import stat
 import tempfile
 
 from .profile_settings import LIMITS, validate_settings
-from .kmic_profiles import FLASH, FLASH_SETTINGS, FLASH_BINARY_SHA256, LEGACY, RUNTIMES, public_recipe
+from .kmic_profiles import FLASH, FLASH_BINARY_SHA256, LEGACY, RUNTIMES, public_recipe
 
 ID = r"[a-z0-9][a-z0-9._-]{0,63}"
 SAFE_PATH = r"/[A-Za-z0-9/._+-]+"
@@ -85,8 +85,8 @@ class ManagedModels:
             validate_settings(entry["initial"], limits["context"], limits["batch"], limits["ubatch"])
             parsed = {**entry, "path": path}
             if runtime in FLASH:
-                if limits != FLASH_SETTINGS or entry["initial"] != FLASH_SETTINGS:
-                    raise ValueError("Flash Next settings must match the tested profile")
+                if limits != FLASH[runtime] or entry["initial"] != FLASH[runtime]:
+                    raise ValueError("Flash Next settings must match the configured recipe")
                 files = entry.get("files")
                 if not isinstance(files, list) or not 2 <= len(files) <= 32:
                     raise ValueError("Expected a complete sharded Flash Next bundle")
@@ -146,8 +146,8 @@ class ManagedModels:
         entry = self.entries[model_id]
         limits = entry["limits"]
         validate_settings(settings, limits["context"], limits["batch"], limits["ubatch"])
-        if entry.get("runtime") in FLASH and settings != FLASH_SETTINGS:
-            raise ValueError("Flash Next requires the exact tested settings")
+        if entry.get("runtime") in FLASH and settings != FLASH[entry["runtime"]]:
+            raise ValueError("Flash Next requires the exact recipe settings")
         if require_available and not self.available(entry):
             raise ValueError("Approved model file is unavailable")
         return entry

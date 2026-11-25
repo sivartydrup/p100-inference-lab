@@ -7,13 +7,14 @@ An Ubuntu-first, open-source observation and benchmarking foundation for native 
 - Authenticated CPU/RAM, database-disk and NVIDIA GPU telemetry; graceful operation without GPUs.
 - Shared, approximately once-per-second authenticated telemetry stream with polling fallback; see [live telemetry](docs/LIVE_TELEMETRY.md).
 - Read-only motherboard fan RPM panel, with mock, unavailable and stale states; see [fan monitoring](docs/FAN_MONITORING.md). No fan controls or automatic driver loading.
-- Optional [fixed Kmic host agent](docs/ENGINE_AGENT.md) for live service/model status and separately authenticated start/stop/boot controls; disabled and uninstalled by default.
+- Optional [host engine agent](docs/ENGINE_AGENT.md) for Kmic, Kmic MoE, Strata, [Scream P100 and Inkling 2 Mini](docs/SCREAM_P100.md), PXA and qr0n status and start/stop controls.
+- Optional [OpenAI-compatible inference gateway](docs/INFERENCE_GATEWAY.md) for one client configuration across the engines.
 - Clearly labelled simulated telemetry for Windows development (`LAB_TELEMETRY=mock`). Mock values are never benchmark results.
-- Read-only adapter inventory for Kmic, PXA and qr0n; bounded GGUF/safetensors file inventory.
+- Model library with Kmic next-start selections, fixed service profiles and bounded GGUF/safetensors inventory.
 - Manual benchmark recording through the authenticated API and history in the dashboard.
 - Non-root container, persistent database volume, optional NVIDIA utility integration, tests and CI.
 
-Engine/model controls are **not implemented**. The reserved control endpoint always returns 403 after authentication. There is no arbitrary command API, shell interpreter, SSH automation, model downloader, driver installer or Docker socket mount. Existing Netdata and native engines remain independent.
+Engine controls are disabled by default. Deployments that enable the host agent require a separate engine control token and use fixed, reviewed systemd user units.
 
 The optional [administrator-started worker](docs/ADMIN_WORKER.md) adds a disabled, host-only system-unit transport with non-root engine payloads, sealed presets and a private durable queue. It installs no service or privilege grant and is not invoked by the dashboard. Review and actual host acceptance are required before enabling it.
 
@@ -31,7 +32,7 @@ Job submission/cancellation are disabled by default. Enabling fixtures requires 
 
 The next Phase 2 increment adds an optional [host-only native benchmark runner](docs/NATIVE_RUNNER.md) and read-only native history page. Administrator-reviewed Kmic/qr0n presets have artifact hashes, resource checks, bounded systemd user units, cancellation/recovery and a separate database. It ships disabled, exposes no HTTP execution capability, and is not enabled by Compose. Ubuntu/systemd, compatible model and P100 acceptance remain required; PXA remains inventory-only. See [verification](docs/NATIVE_VERIFICATION.md).
 
-See [installation and acceptance checks](docs/INSTALL.md). The intended browser URL is **http://192.168.0.188:3000**. The static UI is public; every `/api/*` operation requires a random bearer token. Plain HTTP does not encrypt that token; use only a trusted isolated LAN, or choose the documented SSH tunnel/HTTPS alternative. Management remains disabled in every topology.
+See [installation and acceptance checks](docs/INSTALL.md). The intended browser URL is **http://192.168.0.188:3000**. The static UI is public; every `/api/*` operation requires a random bearer token. Use the HTTP listener on a trusted isolated LAN, or choose the documented SSH tunnel or HTTPS alternative.
 
 ```bash
 # On Ubuntu, after checking prerequisites and reviewing the installation guide:
@@ -88,3 +89,5 @@ switches and live output sliders after a separate root-broker installation and
 host acceptance. Base deployment remains monitoring-only.
 
 Apache-2.0 for this project. Dependencies, container OS packages, external engines and model weights retain their own licenses. No engines, NVIDIA libraries or models are bundled in the source. Exact engine upstreams and licenses require host verification before integration or redistribution.
+
+See the [deployment reconciliation record](docs/RECONCILIATION_20261125.md) for the engine integrations, preserved private host state and remaining validation limits.

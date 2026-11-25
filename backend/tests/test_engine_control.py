@@ -45,9 +45,9 @@ def test_control_is_disabled_by_default_and_other_engines_stay_denied(tmp_path):
     with TestClient(create_app(settings(tmp_path, engine_controls=False))) as client, patch('lab.main.engine_exchange') as agent:
         assert client.post('/api/engines/kmic/control', headers=ADMIN, json={'action': 'stop'}).status_code == 403
         agent.assert_not_called()
-    with TestClient(create_app(settings(tmp_path))) as client, patch('lab.main.engine_exchange') as agent:
-        assert client.post('/api/engines/pxa/control', headers=ADMIN, json={'action': 'start'}).status_code == 403
-        agent.assert_not_called()
+    with TestClient(create_app(settings(tmp_path))) as client, patch('lab.main.engine_exchange', side_effect=EngineUnavailable) as agent:
+        assert client.post('/api/engines/pxa/control', headers=ADMIN, json={'action': 'start'}).status_code == 503
+        agent.assert_called_once_with('/engine-agent/agent.sock', IPC, 'start', engine='pxa')
 
 
 def test_engine_agent_status_and_unavailable_state(tmp_path):
@@ -63,6 +63,33 @@ def test_engine_agent_status_and_unavailable_state(tmp_path):
         assert result['controls_available'] is False
         response = client.post('/api/engines/kmic/control', headers=ADMIN, json={'action': 'stop'})
         assert response.status_code == 503 and 'unknown' in response.json()['detail']
+
+
+@pytest.mark.parametrize('target', ['strata', 'pxa', 'qr0n', 'scream', 'scream-512k', 'inkling', 'kmic-moe'])
+def test_optional_engine_dispatches_only_authenticated_start_and_stop(tmp_path, target):
+    status = {'id': target, 'unit': f'p100-lab-{target}.service', 'state': 'active',
+              'ready': True, 'controls_available': True}
+
+    def exchange(path, token, operation, *, engine='kmic'):
+        assert token == IPC
+        if engine != target:
+            raise EngineUnavailable()
+        return status.copy() if operation == 'status' else {
+            'accepted': True, 'operation': operation, 'unit': status['unit']}
+
+    with TestClient(create_app(settings(tmp_path))) as client, patch('lab.main.engine_exchange', side_effect=exchange) as agent:
+        route = f'/api/engines/{target}/control'
+        assert client.post(route, headers=AUTH, json={'action': 'stop'}).status_code == 403
+        assert client.post(route, headers=ADMIN, json={'action': 'enable_boot'}).status_code == 403
+        agent.assert_not_called()
+        response = client.get('/api/engines', headers=AUTH)
+        assert next(item for item in response.json()['items'] if item['id'] == target) == status
+        for action in ('start', 'stop'):
+            assert client.post(route, headers=ADMIN, json={'action': action}).status_code == 200
+            agent.assert_called_with('/engine-agent/agent.sock', IPC, action, engine=target)
+    with sqlite3.connect(tmp_path / 'lab.db') as connection:
+        assert connection.execute('SELECT engine,action,outcome FROM audit').fetchall() == [
+            (target, 'start', 'accepted'), (target, 'stop', 'accepted')]
 
 
 @pytest.mark.parametrize('overrides', [{'engine_control_token': READ}, {'engine_control_token': IPC},
