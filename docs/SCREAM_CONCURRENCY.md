@@ -40,6 +40,12 @@ requests or park conversations in host memory when its K/V pool is short.
 parking events. Multi-slot residency is confirmed only when all requested slots
 are observed near-full together and no parking is logged. Missing samples or
 parking leave residency unconfirmed, even when every request completes.
+For probes, the runner also records the pinned engine's advertised aggregate
+free/lendable K/V positions. If that necessary bound is below the requested
+simultaneous input/output occupancy, it skips the measured wave and records the
+allocation failure. This is a configuration-bound rejection, not an observed
+thermal failure or a claim about every possible recipe. Unknown log formats do
+not produce a bound; actual observations and the guards still apply.
 
 Keep one baseline memory recipe fixed across a matrix. The runner copies the
 selected private base profile, preserving MTP, lookup, conversation cache,

@@ -14,6 +14,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import secrets
 import signal
 import socket
@@ -388,6 +389,19 @@ def context_evidence(case, requests, observations, engine_log):
                        'Missing observations or any parking makes multi-slot residency unconfirmed.')
 
 
+def pool_evidence(case, engine_log):
+    """Pinned Scream's free_pages includes the arena's maximum lendable pages."""
+    matches = re.findall(r'K/V pool \((?:int8|fp16)\) (\d+) positions free',engine_log)
+    if not matches:
+        return None  # Unknown format: rely on actual observations, never invent a bound.
+    available = int(matches[-1])
+    simultaneous = min(case['slots'],max(case['concurrency']))
+    initial = case['target_prompt_tokens']-(case['output_tokens']+256 if case['turns']>1 else 0)
+    required = simultaneous*(initial+case['output_tokens'])
+    return dict(advertised_positions=available, requested_positions=required,
+                simultaneous_contexts=simultaneous, necessary_bound_satisfied=required<=available)
+
+
 def execute_case(base, case, root, data, directory, reserve):
     initial = idle_window()
     directory.mkdir(mode=0o700)
@@ -491,6 +505,10 @@ def execute_case(base, case, root, data, directory, reserve):
                 raise RuntimeError('Engine fell back from requested slots/context')
             if props.get('model_alias') != 'p100-concurrency-test' or props.get('is_sleeping'):
                 raise RuntimeError('Unexpected candidate identity/state')
+            log_path = directory/'engine.log'
+            result['pool_evidence'] = pool_evidence(case,log_path.read_text(errors='replace') if log_path.exists() else '')
+            if case['tier']=='probe' and result['pool_evidence'] is not None and not result['pool_evidence']['necessary_bound_satisfied']:
+                raise RuntimeError('Advertised aggregate K/V pool cannot hold the requested resident contexts; no measured wave launched')
             # Unmeasured warmup; no synthetic result is used as a measured sample.
             warmup = api.generate([{'role':'user','content':'Say ready.'}], 32, threading.Barrier(1), time.monotonic()+120)
             warmup.pop('text')
@@ -671,7 +689,7 @@ def run_matrix(args, cases):
                           guard_errors=['Preflight or cleanup failure; review before continuing'])
             save(directory/f'abort-{index:03}.json', result)
         results.append(result)
-        print('passed' if result['passed'] else 'failed; matrix stopped for review', flush=True)
+        print('passed' if result['passed'] else 'failed; see preserved evidence and guard status', flush=True)
         if not result['passed']:
             if result.get('guard_errors'):
                 break  # A thermal/RAM/policy guard abort ends the entire experiment.

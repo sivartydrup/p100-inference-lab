@@ -54,6 +54,15 @@ def test_single_context_proof_requires_a_completed_near_limit_request():
     assert bench.context_evidence(case,[{'prompt_tokens':129000}],[], '')['simultaneous_resident_contexts_confirmed']
 
 
+def test_aggregate_pool_bound_distinguishes_resident_slots_from_queued_clients():
+    case=bench.matrix(slots=[2],contexts=[262144],tier='probe')[0]
+    bound=bench.pool_evidence(case,'sfnx: K/V pool (int8) 443712 positions free; VRAM free 100 MiB')
+    assert bound['requested_positions']==520704 and not bound['necessary_bound_satisfied']
+    case['concurrency']=[8]
+    assert bench.pool_evidence(case,'K/V pool (int8) 443712 positions free')['requested_positions']==520704
+    assert bench.pool_evidence(case,'new unknown telemetry format') is None
+
+
 def test_default_cli_is_offline(monkeypatch, capsys):
     monkeypatch.setattr('sys.argv', ['scream_concurrency'])
     monkeypatch.setattr(bench.subprocess, 'run', lambda *a,**k: pytest.fail('Subprocess in offline plan'))
