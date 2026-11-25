@@ -282,6 +282,9 @@ def test_summary_keeps_followups_separate_and_counts_wave_makespan():
     assert len(summary)==2 and [r['turn'] for r in summary]==[0,1]
     assert summary[0]['aggregate_output_tokens_s_median']==pytest.approx(200/11)
     assert summary[0]['peak_overlapping_generated_streams']==2
+    assert summary[0]['completion_s_median']==10.5
+    assert summary[0]['completion_s_p95']==11
+    assert summary[0]['ttft_s_median']==1
 
 
 def test_recommendations_exclude_screening_failed_and_short_outputs():

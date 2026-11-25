@@ -572,6 +572,7 @@ def summarize(results):
                 rates.append(sum(r['completion_tokens'] for r in group)/
                              (max(r['ended'] for r in group)-min(r['started'] for r in group)))
             latencies = sorted(r['ttft_s'] for r in rows)
+            completions = sorted(r['wall_s'] for r in rows)
             events = sorted([(r['first_generated_at'],1) for r in rows]+
                             [(r['last_generated_at'],-1) for r in rows])
             active = peak = 0
@@ -586,6 +587,8 @@ def summarize(results):
                 requests=len(rows), aggregate_output_tokens_s_median=statistics.median(rates),
                 ttft_s_median=statistics.median(latencies),
                 ttft_s_p95=latencies[max(0, math.ceil(.95*len(latencies))-1)],
+                completion_s_median=statistics.median(completions),
+                completion_s_p95=completions[max(0, math.ceil(.95*len(completions))-1)],
                 max_wall_s=max(r['wall_s'] for r in rows),
                 peak_overlapping_generated_streams=peak,
                 output_budget_fraction_median=statistics.median(r['completion_tokens']/r['requested_output_tokens'] for r in rows),

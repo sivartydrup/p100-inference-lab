@@ -142,7 +142,8 @@ Results include:
   Optional engine timing fields retain self-reported cached/read token counts and
   native prefill/decode time; client wall-clock measurements remain separate.
 - Per wave: aggregate output tokens divided by the synchronized wave's makespan,
-  including prefill and queueing; latency median/p95; observed overlap of generated
+  including prefill and queueing; first-token and full-response latency median/p95;
+  observed overlap of generated
   response streams. Streaming overlap is a scheduling signal, not kernel profiling.
 - Once-per-second telemetry: per-GPU UUID, temperature, power, VRAM and utilization;
   host available/total RAM, swap and load. The summary retains resource peaks and
