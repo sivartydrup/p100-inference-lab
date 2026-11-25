@@ -355,8 +355,8 @@ def verify_cgroup(unit, memory_max):
 
 
 def execute_case(base, case, root, data, directory, reserve):
-    directory.mkdir(mode=0o700)
     initial = idle_window()
+    directory.mkdir(mode=0o700)
     key = secrets.token_hex(32)
     cfg = profile_for(base, case, root, directory, key)
     save(directory/'profile.private.json', cfg)
@@ -566,7 +566,13 @@ def main():
         if case['slots'] in blocked_slots:
             continue
         print(f"Case {index+1}/{len(cases)}: {case['slots']} slots, {case['context']} context", flush=True)
-        result = execute_case(base, case, root, data, directory/f'case-{index:03}', args.reserve_gib)
+        try:
+            result = execute_case(base, case, root, data, directory/f'case-{index:03}', args.reserve_gib)
+        except (Exception, KeyboardInterrupt) as error:
+            result = dict(case=case, passed=False, requests=[],
+                          error=type(error).__name__+': '+str(error),
+                          guard_errors=['Preflight or cleanup failure; review before continuing'])
+            save(directory/f'abort-{index:03}.json', result)
         results.append(result)
         print('passed' if result['passed'] else 'failed; matrix stopped for review', flush=True)
         if not result['passed']:
