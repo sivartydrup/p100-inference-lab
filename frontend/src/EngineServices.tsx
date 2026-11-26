@@ -99,6 +99,8 @@ export function EngineServices({ items, controlsEnabled, token, stale, refresh, 
           </> : engine.configured_model && <><dt>Configured model</dt><dd>{engine.configured_model}</dd></>}
           {engine.serving_profile && <><dt>Gateway model ID</dt><dd><code>{engine.serving_profile.alias}</code></dd>
             <dt>Configured context</dt><dd>{engine.serving_profile.context.toLocaleString()} tokens</dd></>}
+          {engine.serving_profile?.generation_slots !== undefined && <><dt>Generation slots</dt>
+            <dd>{engine.serving_profile.generation_slots}{engine.serving_profile.generation_slots === 1 && ' — requests queue'}</dd></>}
           {engine.boot_enabled !== undefined && <><dt>Automatically start at boot</dt>
             <dd>{engine.boot_enabled ? 'Enabled' : 'Disabled'}{stale && ' (stale)'}</dd></>}
         </dl>}

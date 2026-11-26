@@ -65,7 +65,7 @@ def test_engine_agent_status_and_unavailable_state(tmp_path):
         assert response.status_code == 503 and 'unknown' in response.json()['detail']
 
 
-@pytest.mark.parametrize('target', ['strata', 'pxa', 'qr0n', 'scream', 'scream-512k', 'inkling', 'kmic-moe'])
+@pytest.mark.parametrize('target', ['strata', 'pxa', 'qr0n', 'scream', 'scream-512k', 'scream-two-agent', 'inkling', 'kmic-moe'])
 def test_optional_engine_dispatches_only_authenticated_start_and_stop(tmp_path, target):
     status = {'id': target, 'unit': f'p100-lab-{target}.service', 'state': 'active',
               'ready': True, 'controls_available': True}

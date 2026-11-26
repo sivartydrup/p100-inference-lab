@@ -92,6 +92,9 @@ export function ModelLibrary({ data, engines, catalog = [], canStage, stage, sta
         <dt>Maximum output</dt><dd>{profile.max_output.toLocaleString()} tokens</dd>
         <dt>Input</dt><dd>{profile.vision ? 'Text and images' : 'Text'}</dd>
         <dt>Reasoning</dt><dd>{profile.reasoning ? 'Supported' : 'Off'}</dd>
+        {profile.generation_slots !== undefined && <><dt>Generation slots</dt><dd>{profile.generation_slots}{profile.generation_slots === 1 && ' — model requests queue'}</dd></>}
+        {profile.conversation_cache_mib !== undefined && <><dt>Conversation cache</dt><dd>{profile.conversation_cache_mib / 1024} GiB</dd></>}
+        {profile.client_default_thinking !== undefined && <><dt>Thinking in exported preset</dt><dd>{profile.client_default_thinking ? 'On' : 'Off'}</dd></>}
       </dl>
       <p className="muted">This model is configured in the host service. Use Engine services to load it.</p>
       <button className="secondary" disabled={stale} onClick={() => downloadGatewayProfile(profile, fixedEngine?.configured_model ?? profile.alias)}>Download Oh My Pi preset</button>

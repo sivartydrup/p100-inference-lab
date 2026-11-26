@@ -4,7 +4,7 @@ import io
 import subprocess
 from pathlib import Path
 
-ENGINE_IDS = ("kmic", "kmic-moe", "pxa", "qr0n", "strata", "scream", "scream-512k", "inkling")
+ENGINE_IDS = ("kmic", "kmic-moe", "pxa", "qr0n", "strata", "scream", "scream-512k", "scream-two-agent", "inkling")
 MANAGED_UNITS = {"kmic": "kmic-qwen27b.service",
                  **{engine: f"p100-lab-{engine}.service" for engine in ENGINE_IDS if engine != "kmic"}}
 

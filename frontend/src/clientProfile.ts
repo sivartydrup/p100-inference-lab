@@ -25,11 +25,15 @@ export function downloadClientProfile(recipe: Recipe, contextWindow: number) {
 }
 
 export function downloadGatewayProfile(profile: ServingProfile, name: string) {
-  const content = { providers: { p100: {
+  const thinking = profile.client_default_thinking;
+  const provider = thinking === undefined ? 'p100' : 'p100-' + profile.alias;
+  const content = { providers: { [provider]: {
     baseUrl: `http://${window.location.hostname}:8090/v1`, apiKey: 'P100_INFERENCE_KEY', api: 'openai-completions',
-    models: [{ id: profile.alias, name, reasoning: profile.reasoning, input: profile.vision ? ['text', 'image'] : ['text'],
+    models: [{ id: profile.alias, name, reasoning: thinking ?? profile.reasoning, input: profile.vision ? ['text', 'image'] : ['text'],
       contextWindow: profile.context, maxTokens: profile.max_output,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      ...(thinking === undefined ? {} : { compat: { maxTokensField: 'max_tokens',
+        extraBody: { chat_template_kwargs: { enable_thinking: thinking } } } }) }],
     compat: { streamFirstEventTimeoutMs: 1800000 },
   } } };
   download(JSON.stringify(content, null, 2) + '\n', profile.alias);

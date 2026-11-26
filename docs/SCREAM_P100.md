@@ -1,5 +1,8 @@
 # Scream P100 Flash-Next
 
+For two coding agents, see the separate [queued 256K profile](SCREAM_TWO_AGENT.md).
+It preserves the existing 512K option and uses the measured 12GiB conversation cache.
+
 For offline preparation of slot/context experiments, see the
 [concurrency test plan](SCREAM_CONCURRENCY.md). Its execution mode is reserved
 for an operator-confirmed maintenance window; preparation does not interrupt
