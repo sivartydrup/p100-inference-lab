@@ -30,6 +30,77 @@ def test_matrix_distinguishes_capacity_from_short_screen():
         assert case['concurrency']==sorted({1,case['slots'],2*case['slots']})
 
 
+def test_capacity_probe_is_near_limit_but_not_a_repeated_performance_result():
+    case=bench.matrix(slots=[2],contexts=[262144],tier='probe')[0]
+    assert case['target_prompt_tokens']==262144-2048
+    assert case['concurrency']==[2] and case['repeats']==case['turns']==1
+    assert case['output_tokens']==256
+
+
+def test_context_proof_refuses_queued_or_parked_conversations():
+    case=bench.matrix(slots=[2],contexts=[131072],tier='probe')[0]
+    queued=[{'slots':[{'state':'idle','held_tokens':129000},{'state':'reading','prompt_read':100}]}]
+    assert not bench.context_evidence(case,[],queued,'')['simultaneous_resident_contexts_confirmed']
+    both=[{'slots':[{'state':'decoding','prompt_tokens':129000,'generated':1},
+                    {'state':'decoding','prompt_tokens':129000,'generated':1}]}]
+    assert bench.context_evidence(case,[],both,'')['simultaneous_resident_contexts_confirmed']
+    parked=bench.context_evidence(case,[],both,"sfnx: K/V pool short: slot 0's conversation parked")
+    assert not parked['simultaneous_resident_contexts_confirmed'] and parked['parking_events']==1
+
+
+def test_single_context_proof_requires_a_completed_near_limit_request():
+    case=bench.matrix(slots=[1],contexts=[131072],tier='probe')[0]
+    assert not bench.context_evidence(case,[{'prompt_tokens':8192}],[], '')['simultaneous_resident_contexts_confirmed']
+    assert bench.context_evidence(case,[{'prompt_tokens':129000}],[], '')['simultaneous_resident_contexts_confirmed']
+
+
+def test_input_target_and_engine_allocation_limit_are_distinct():
+    case=bench.matrix(slots=[4],contexts=[262144],tier='probe')[0]
+    observations=[{'slots':[{'state':'decoding','prompt_tokens':129000,'generated':1} for _ in range(4)]}]
+    assert not bench.context_evidence(case,[],observations,'')['simultaneous_resident_contexts_confirmed']
+    case.update(target_prompt_tokens=129024,initial_prompt_override=129024)
+    result=bench.context_evidence(case,[],observations,'')
+    assert result['simultaneous_resident_contexts_confirmed']
+    assert result['engine_context_limit']==262144 and result['requested_initial_prompt_tokens']==129024
+
+
+def test_small_input_target_cannot_be_proven_by_empty_reading_slots():
+    case=bench.matrix(slots=[2],contexts=[32768],tier='probe')[0]
+    case.update(target_prompt_tokens=512,initial_prompt_override=512)
+    empty=[{'slots':[{'state':'reading','prompt_read':0} for _ in range(2)]}]
+    assert not bench.context_evidence(case,[],empty,'')['simultaneous_resident_contexts_confirmed']
+
+
+def test_idle_parking_and_resumes_are_not_silently_omitted():
+    case=bench.matrix(slots=[2],contexts=[131072],tier='probe')[0]
+    log=('sfnx: slot 0 idle 120 s while experts are lent: its conversation parked\n'
+         'sfnx: slot 1 resumed: its 129000 tokens reloaded in 100 ms\n'
+         'conversation cache: too large: not parked\n')
+    evidence=bench.context_evidence(case,[],[],log)
+    assert evidence['parking_events']==evidence['idle_parking_events']==1
+    assert evidence['resume_events']==1
+
+
+def test_previous_prompt_progress_on_new_reading_slot_is_not_residency_proof():
+    case=bench.matrix(slots=[4],contexts=[262144],tier='probe')[0]
+    case['target_prompt_tokens']=129024
+    slots=[{'state':'decoding','prompt_tokens':129000,'generated':100} for _ in range(3)]
+    slots.append({'state':'reading','prompt_read':129000,'elapsed_s':1})
+    result=bench.context_evidence(case,[],[{'slots':slots}],'')
+    assert result['active_batch_slots_peak']==4
+    assert result['near_full_active_slots_peak']==3
+    assert not result['simultaneous_resident_contexts_confirmed']
+
+
+def test_aggregate_pool_bound_distinguishes_resident_slots_from_queued_clients():
+    case=bench.matrix(slots=[2],contexts=[262144],tier='probe')[0]
+    bound=bench.pool_evidence(case,'sfnx: K/V pool (int8) 443712 positions free; VRAM free 100 MiB')
+    assert bound['requested_positions']==520704 and not bound['necessary_bound_satisfied']
+    case['concurrency']=[8]
+    assert bench.pool_evidence(case,'K/V pool (int8) 443712 positions free')['requested_positions']==520704
+    assert bench.pool_evidence(case,'new unknown telemetry format') is None
+
+
 def test_default_cli_is_offline(monkeypatch, capsys):
     monkeypatch.setattr('sys.argv', ['scream_concurrency'])
     monkeypatch.setattr(bench.subprocess, 'run', lambda *a,**k: pytest.fail('Subprocess in offline plan'))
@@ -42,6 +113,31 @@ def test_execution_requires_explicit_window_and_paths(monkeypatch):
     monkeypatch.setattr('sys.argv', ['scream_concurrency','--execute'])
     with pytest.raises(SystemExit):
         bench.main()
+
+
+def test_matched_client_workload_is_explicit_in_offline_plan(monkeypatch,capsys):
+    monkeypatch.setattr('sys.argv',['scream_concurrency','--slots','1','4','--contexts','65536',
+                                  '--tier','capacity','--clients','4','--prompt-tokens','8192'])
+    bench.main()
+    cases=json.loads(capsys.readouterr().out)['cases']
+    assert len(cases)==2 and all(c['concurrency']==[4] for c in cases)
+    assert all(c['target_prompt_tokens']-c['output_tokens']-256==8192 for c in cases)
+
+
+def test_prompt_override_cannot_exceed_context_budget(monkeypatch):
+    monkeypatch.setattr('sys.argv',['scream_concurrency','--contexts','32768','--tier','capacity',
+                                  '--prompt-tokens','32768'])
+    with pytest.raises(SystemExit):bench.main()
+
+
+def test_idle_cache_probe_is_explicit_and_not_automatically_ranked(monkeypatch,capsys):
+    monkeypatch.setattr('sys.argv',['scream_concurrency','--slots','2','--contexts','262144',
+        '--tier','capacity','--clients','2','--repeats','1','--idle-between-turns','130'])
+    bench.main()
+    case=json.loads(capsys.readouterr().out)['cases'][0]
+    assert case['repeats']==1 and case['turns']==2 and case['idle_between_turns_s']==130
+    monkeypatch.setattr('sys.argv',['scream_concurrency','--tier','probe','--idle-between-turns','130'])
+    with pytest.raises(SystemExit):bench.main()
 
 
 @pytest.mark.parametrize('failure', ['heat','power','ram','swap','card_count','model'])
@@ -75,6 +171,35 @@ def test_active_service_refuses_before_gpu_or_any_mutation(monkeypatch):
 def test_existing_compute_process_refuses(monkeypatch):
     monkeypatch.setattr(bench,'fixed',lambda *a:'inactive' if 'systemctl' in a[0] else '1234')
     with pytest.raises(RuntimeError,match='no process was stopped'): bench.idle_window()
+
+
+def test_port_probe_reuses_closed_connections_but_refuses_listener(monkeypatch):
+    monkeypatch.setattr(bench,'fixed',lambda *a:'inactive' if 'systemctl' in a[0] else '')
+    monkeypatch.setattr(bench,'hardware',sample)
+    with bench.socket.socket() as server:
+        server.setsockopt(bench.socket.SOL_SOCKET,bench.socket.SO_REUSEADDR,1)
+        server.bind(('127.0.0.1',0))
+        server.listen()
+        monkeypatch.setattr(bench,'PORT',server.getsockname()[1])
+        with pytest.raises(RuntimeError,match='already has a listener'): bench.idle_window()
+    assert bench.idle_window()['available_bytes']==sample()['available_bytes']
+
+
+def test_port_probe_accepts_time_wait_after_an_actual_connection(monkeypatch):
+    monkeypatch.setattr(bench,'fixed',lambda *a:'inactive' if 'systemctl' in a[0] else '')
+    monkeypatch.setattr(bench,'hardware',sample)
+    with bench.socket.socket() as server:
+        server.setsockopt(bench.socket.SOL_SOCKET,bench.socket.SO_REUSEADDR,1)
+        server.bind(('127.0.0.1',0))
+        server.listen()
+        address=server.getsockname()
+        monkeypatch.setattr(bench,'PORT',address[1])
+        with bench.socket.create_connection(address,timeout=2) as client:
+            accepted,_=server.accept()
+            with accepted:
+                accepted.shutdown(bench.socket.SHUT_WR)  # Server actively closes first.
+                assert client.recv(1)==b''
+    assert bench.idle_window()['available_bytes']==sample()['available_bytes']
 
 
 def test_profile_changes_only_test_identity_slots_context_and_rope(tmp_path):
@@ -147,7 +272,7 @@ def test_stream_ignores_role_frame_and_requires_usage_and_done(monkeypatch):
             for event in [{'choices':[{'delta':{'role':'assistant'}}]},
                           {'choices':[{'delta':{'content':'SESSION=x'}}]},
                           {'choices':[{'delta':{'content':' example'},'finish_reason':'length'}]},
-                          {'choices':[],'usage':{'prompt_tokens':100,'completion_tokens':3}}]:
+                          {'choices':[],'usage':{'prompt_tokens':100,'completion_tokens':3},'timings':{'cache_n':0,'prompt_ms':10}}]:
                 self.wfile.write(('data: '+json.dumps(event)+'\n\n').encode())
             self.wfile.write(b'data: [DONE]\n\n')
         def log_message(self,*args): pass
@@ -160,6 +285,7 @@ def test_stream_ignores_role_frame_and_requires_usage_and_done(monkeypatch):
         row=api.generate([{'role':'user','content':'test'}],256,threading.Barrier(1),bench.time.monotonic()+10)
         assert row['text']=='SESSION=x example' and row['completion_tokens']==3
         assert row['ttft_s']>=0 and row['prompt_tokens']==100
+        assert row['engine_timings']=={'cache_n':0,'prompt_ms':10}
     finally:
         server.shutdown(); server.server_close(); thread.join()
 
@@ -177,6 +303,9 @@ def test_summary_keeps_followups_separate_and_counts_wave_makespan():
     assert len(summary)==2 and [r['turn'] for r in summary]==[0,1]
     assert summary[0]['aggregate_output_tokens_s_median']==pytest.approx(200/11)
     assert summary[0]['peak_overlapping_generated_streams']==2
+    assert summary[0]['completion_s_median']==10.5
+    assert summary[0]['completion_s_p95']==11
+    assert summary[0]['ttft_s_median']==1
 
 
 def test_recommendations_exclude_screening_failed_and_short_outputs():
@@ -188,6 +317,29 @@ def test_recommendations_exclude_screening_failed_and_short_outputs():
     choices=bench.recommendations(variants)['comparisons']
     assert len(choices)==1 and choices[0]['best_aggregate']==row
     assert bench.recommendations(variants[1:])['comparisons']==[]
+
+
+def test_recommendations_compare_equal_load_across_different_slot_counts():
+    row=dict(passed=True,tier='capacity',concurrency=4,slots=1,requests=12,
+             output_budget_fraction_median=1,context=65536,turn=0,
+             initial_prompt_target=8192,requested_output_tokens=1024,
+             aggregate_output_tokens_s_median=20,ttft_s_p95=10)
+    faster={**row,'slots':4,'aggregate_output_tokens_s_median':22,'ttft_s_p95':20}
+    unlike={**faster,'concurrency':8,'requests':24}
+    choices=bench.recommendations([row,faster,unlike])['comparisons']
+    matched=next(c for c in choices if c['clients']==4)
+    assert matched['best_aggregate']['slots']==4
+    assert matched['best_first_token_latency']['slots']==1
+
+
+def test_recommendations_do_not_mix_immediate_and_parked_followups():
+    row=dict(passed=True,tier='capacity',concurrency=2,slots=2,requests=6,
+             output_budget_fraction_median=1,context=262144,turn=1,
+             initial_prompt_target=258816,requested_output_tokens=1024,
+             aggregate_output_tokens_s_median=30,ttft_s_p95=2)
+    parked={**row,'idle_between_turns_s':130,'ttft_s_p95':3}
+    choices=bench.recommendations([row,parked])['comparisons']
+    assert {c['idle_between_turns_s'] for c in choices}=={0,130}
 
 
 def test_multiturn_wave_keeps_agent_histories_independent(monkeypatch,tmp_path):
@@ -213,6 +365,28 @@ def test_multiturn_wave_keeps_agent_histories_independent(monkeypatch,tmp_path):
     assert len(followups)==2
     for history in followups:
         assert history[1]['content']=='SESSION='+history[0]['content']
+
+
+def test_abort_during_idle_prevents_any_followup_request(monkeypatch,tmp_path):
+    calls=[]
+    monkeypatch.setattr(bench,'save',lambda *args:None)
+    monkeypatch.setattr(bench,'prompt',lambda api,target,marker:([{'role':'user','content':marker}],100))
+    class FakeAPI:
+        def generate(self,messages,output,barrier,deadline):
+            barrier.wait(timeout=5)
+            calls.append(1)
+            return dict(text='SESSION='+messages[0]['content'],prompt_tokens=100,completion_tokens=32)
+        def cancel(self): pytest.fail('Valid initial wave cancelled')
+    class AbortInIdle(threading.Event):
+        def wait(self,timeout=None):
+            assert timeout==130
+            self.set()
+            return True
+    case=bench.matrix(slots=[2],contexts=[32768],tier='capacity')[0]
+    case['idle_between_turns_s']=130
+    with pytest.raises(RuntimeError,match='aborted during inter-turn idle'):
+        bench.wave(FakeAPI(),2,case,0,tmp_path,AbortInIdle())
+    assert len(calls)==2
 
 
 def test_candidate_startup_failure_always_cleans_only_owned_unit(monkeypatch,tmp_path):

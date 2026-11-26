@@ -1,7 +1,9 @@
 # Scream Flash Next concurrency experiments
 
-**Prepared only. No live inference run or production configuration change is
-part of this feature.** Use a dedicated maintenance window. The runner refuses
+**Offline by default. Execution requires a dedicated maintenance window.**
+The [hardware results](SCREAM_CONCURRENCY_RESULTS_20261125.md) document a separately
+authorized run; checking out this feature performs no inference or deployment.
+The runner refuses
 active managed engines and any existing GPU compute process; it never stops
 them for you. Pause all coding clients and stop the selected engine through
 the existing dashboard before explicitly executing a test.
@@ -22,6 +24,7 @@ A successful short request is not evidence of full-context capacity.
 | Requested context per request | 32,768; 65,536; 131,072; 262,144; 524,288 |
 | Simultaneous clients | 1, slot count, twice the slot count (deduplicated) |
 | Screening | About 8K input tokens, up to 256 output, one trial, one turn |
+| Capacity probe | Near-limit input in every slot simultaneously, up to 256 output, one wave, one turn |
 | Capacity | Near context limit with output/follow-up reserve, up to 1,024 output, three trials, two turns |
 | Longer output check | Optional `--output-tokens 8192`; input reserve adjusts accordingly |
 
@@ -32,6 +35,25 @@ values; fallback is a failed configuration. Capacity trials fill independent
 conversations concurrently to test whether that reported context is really
 usable per request. The 512K cases retain the current YaRN x2 extension; shorter
 cases remove it. Context-extension quality is a separate question.
+
+**HTTP success alone is not a resident-capacity pass.** The engine can queue
+requests or park conversations in host memory when its K/V pool is short.
+`context_evidence` separately records active slots, near-full active slots and
+parking events. Multi-slot residency is confirmed only when all requested slots
+are observed near-full together and no parking is logged. Missing samples or
+parking leave residency unconfirmed, even when every request completes.
+The engine context limit also sizes its shared K/V allocation; it is not a
+guarantee that every slot can use that entire window together. Engine window and
+tested initial input target are recorded separately. For example, a server window
+of 262144 with `--prompt-tokens 129024` probes roughly 128K per client while
+allocating the larger shared pool. Confirmation then covers those input targets,
+not four full 256K windows. Keep client budgets explicit when using such a recipe.
+For probes, the runner also records the pinned engine's advertised aggregate
+free/lendable K/V positions. If that necessary bound is below the requested
+simultaneous input/output occupancy, it skips the measured wave and records the
+allocation failure. This is a configuration-bound rejection, not an observed
+thermal failure or a claim about every possible recipe. Unknown log formats do
+not produce a bound; actual observations and the guards still apply.
 
 Keep one baseline memory recipe fixed across a matrix. The runner copies the
 selected private base profile, preserving MTP, lookup, conversation cache,
@@ -70,7 +92,10 @@ than two Tesla P100 PCIe 16GB cards; four-card testing needs a reviewed update.
    loads and can take hours. Start with 32K/64K and grow the selection if the
    available window is short. Never treat an interrupted/unattempted case as
    an unsupported capacity result.
-5. For screen survivors, run capacity tests with explicit smaller selections:
+5. For screen survivors, first use `--tier probe` for one near-limit simultaneous
+   wave at slot-matched concurrency. This identifies capacity failures before
+   spending hours on repeated long prompts. A probe is not eligible for automatic
+   candidate comparisons. Then run repeated capacity tests on the survivors:
 
    ```bash
    python3 tools/scream_concurrency.py --execute --window-confirmed \
@@ -83,6 +108,11 @@ than two Tesla P100 PCIe 16GB cards; four-card testing needs a reviewed update.
    allowance. Compare repeated results and then perform representative coding,
    tool-call and sustained-load acceptance before selecting production settings.
    The synthetic workload is not an agentic coding correctness benchmark.
+   For a matched-load comparison, use `--clients 4 --prompt-tokens 8192` with
+   `--tier capacity`: every slot configuration then serves the same four clients
+   with about 8K initial input, three trials and two turns. This is a representative
+   performance workload, not a near-limit capacity demonstration. The override is
+   recorded explicitly; the runner refuses budgets that cannot fit with reserves.
 7. After completion, the candidate is stopped; the runner does **not** start or
    restore any production engine. Choose the desired existing profile and Start
    it explicitly in the dashboard when ready. Production boot settings are untouched.
@@ -111,20 +141,40 @@ Results include:
 - Per request: actual input/output tokens, time to the first content **or
   reasoning** token (ignoring role-only frames), first content latency, total
   latency, finish reason, streamed decode-rate estimate and output digest.
+  Optional engine timing fields retain self-reported cached/read token counts and
+  native prefill/decode time; client wall-clock measurements remain separate.
 - Per wave: aggregate output tokens divided by the synchronized wave's makespan,
-  including prefill and queueing; latency median/p95; observed overlap of generated
+  including prefill and queueing; first-token and full-response latency median/p95;
+  observed overlap of generated
   response streams. Streaming overlap is a scheduling signal, not kernel profiling.
 - Once-per-second telemetry: per-GPU UUID, temperature, power, VRAM and utilization;
   host available/total RAM, swap and load. The summary retains resource peaks and
   the minimum RAM reserve. It does not label sampled power as energy consumption.
+- Independent read-only slot sampling twice per second records actual reading and
+  decoding states. It has a short HTTP timeout and cannot block the hardware guard.
+  The engine log is checked for K/V parking/pausing. These measurements distinguish
+  active GPU-resident contexts from server-reported slot counts and time-slicing.
+  Full-context confirmation counts decoding slots only: the pinned wrapper can
+  briefly attach stale prompt-read progress to a newly assigned reading slot.
 - Cold/new-conversation and follow-up results remain separate. A three-trial p95
   is a coarse order statistic, not a statistically strong service-level estimate.
 
 `summary.json` compares configurations. `candidates.json` identifies the highest
-aggregate throughput and lowest p95 first-token latency for each context/turn
-among successful capacity trials at slot-matched concurrency. It excludes
+aggregate throughput and lowest p95 first-token latency among successful repeated
+trials with the same context, turn, client count, initial prompt target and output
+budget. It never compares unlike client loads as if they were equivalent. It excludes
 screening and runs whose median output is below 90% of the requested budget.
 These are candidates for further testing, not an automatic production change.
+An explicit `--repeats 1` can shorten a focused acceptance probe; it cannot enter
+the repeated-trial rankings. `--idle-between-turns 130` on a capacity workload
+keeps the monitors running during a pause long enough to exercise the pinned
+engine's 120-second idle parking. Check native `cache_n` and follow-up prefill
+timings to distinguish restored KV from a fresh prefill. Idle duration is part of
+the workload comparison key. Expected idle parking makes the conservative
+multi-slot residency flag false; use a separate no-parking probe for that claim.
+Performance comparisons can include queued requests; check `context_evidence`
+before making any simultaneous-residency claim. The residency criterion is
+conservative: even a temporary parking event leaves it unconfirmed.
 Twice-slot-count waves show queueing behavior separately from slot-matched work.
 
 ## Containment, aborts and evidence

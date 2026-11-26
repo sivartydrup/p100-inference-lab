@@ -14,6 +14,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import secrets
 import signal
 import socket
@@ -35,11 +36,11 @@ UNITS = ('kmic-qwen27b', 'p100-lab-kmic-moe', 'p100-lab-strata',
 def matrix(slots=SLOTS, contexts=CONTEXTS, tier='screen'):
     """Context is requested per slot; observed context/slots must match at runtime."""
     return [dict(slots=s, context=c, tier=tier,
-                 concurrency=sorted({1, s, 2*s}),
+                 concurrency=[s] if tier == 'probe' else sorted({1, s, 2*s}),
                  target_prompt_tokens=min(8192, c-2048) if tier == 'screen' else c-2048,
-                 output_tokens=256 if tier == 'screen' else 1024,
-                 repeats=1 if tier == 'screen' else 3,
-                 turns=1 if tier == 'screen' else 2)
+                 output_tokens=1024 if tier == 'capacity' else 256,
+                 repeats=3 if tier == 'capacity' else 1,
+                 turns=2 if tier == 'capacity' else 1)
             for s in sorted(slots) for c in sorted(contexts)]
 
 
@@ -100,7 +101,14 @@ def idle_window():
            for g in snapshot['gpus']):
         raise RuntimeError('Both GPUs must be idle and below 60C')
     safe_sample(snapshot, snapshot['swap_used_bytes'], 6)
+    with socket.socket() as listener:
+        listener.settimeout(.5)
+        if listener.connect_ex(('127.0.0.1', PORT)) == 0:
+            raise RuntimeError('Candidate port already has a listener')
     with socket.socket() as probe:
+        # TIME_WAIT from the previous candidate is not an active listener.
+        # SO_REUSEADDR still refuses an existing listener on this address/port.
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         probe.bind(('127.0.0.1', PORT))
     return snapshot
 
@@ -176,9 +184,9 @@ class API:
                     except OSError:
                         pass
 
-    def json(self, path, payload=None):
+    def json(self, path, payload=None, timeout=60):
         connection = self.connection()
-        connection.timeout = 60  # Large count-only requests can be CPU-bound.
+        connection.timeout = timeout  # Large count-only requests can be CPU-bound.
         try:
             self.connect(connection)
             connection.request('GET' if payload is None else 'POST', path,
@@ -208,6 +216,7 @@ class API:
                 raise RuntimeError('Generation HTTP status '+str(response.status))
             first = content_first = last = None
             text, usage, finish, done = '', None, None, False
+            timings = None
             while True:
                 if self.stopped.is_set() or time.monotonic() > deadline:
                     raise RuntimeError('Generation cancelled or deadline reached')
@@ -227,6 +236,8 @@ class API:
                 if event.get('error'):
                     raise RuntimeError('Candidate emitted a stream error')
                 usage = event.get('usage') or usage
+                if isinstance(event.get('timings'),dict):
+                    timings = event['timings']
                 for choice in event.get('choices', []):
                     delta = choice.get('delta', {})
                     now = time.monotonic()
@@ -249,7 +260,7 @@ class API:
                         wall_s=ended-started, completion_tokens=n, prompt_tokens=usage['prompt_tokens'],
                         decode_tokens_s=(n-1)/(last-first) if n>1 and last>first else None,
                         finish_reason=finish, output_sha256=hashlib.sha256(text.encode()).hexdigest(),
-                        text=text)
+                        engine_timings=timings, text=text)
         finally:
             self.close(connection)
 
@@ -325,6 +336,10 @@ def wave(api, count, case, trial, directory, stopped):
         save(directory/f'wave-{count}-{trial}-{turn}.json', rows)
         if stopped.is_set():
             raise RuntimeError('Run aborted')
+        if turn+1 < case['turns'] and case.get('idle_between_turns_s',0):
+            # Hardware/slot monitors continue while native idle parking can occur.
+            if stopped.wait(case['idle_between_turns_s']):
+                raise RuntimeError('Run aborted during inter-turn idle')
     return results
 
 
@@ -355,6 +370,53 @@ def verify_cgroup(unit, memory_max):
         raise RuntimeError('Effective candidate memory/swap limits not enforced')
 
 
+def context_evidence(case, requests, observations, engine_log):
+    """Successful HTTP waves alone never prove simultaneous GPU residency."""
+    initial = case['target_prompt_tokens']-(case['output_tokens']+256 if case['turns']>1 else 0)
+    threshold = max(1,initial-min(1024,max(1,initial//50)))
+    active_peak = full_peak = 0
+    for sample in observations:
+        active = full = 0
+        for slot in sample.get('slots', []):
+            if slot.get('state') == 'idle':
+                continue
+            active += 1
+            # The pinned wrapper can briefly expose the previous prompt's progress
+            # when assigning a new reading slot. Only decoding proves prefill done.
+            if slot.get('state') == 'decoding':
+                full += (slot.get('prompt_tokens') or 0)+(slot.get('generated') or 0) >= threshold
+        active_peak, full_peak = max(active_peak,active), max(full_peak,full)
+    parks = [line for line in engine_log.splitlines() if
+             ('K/V pool short' in line or ('paused' in line and 'host memory' in line)
+              or ('sfnx:' in line and 'idle' in line and 'conversation parked' in line))]
+    if case['slots']==1:
+        confirmed = any(row['prompt_tokens']>=threshold for row in requests)
+    else:
+        confirmed = full_peak>=case['slots'] and not parks
+    return dict(samples=len(observations), active_batch_slots_peak=active_peak,
+                engine_context_limit=case['context'], requested_initial_prompt_tokens=initial,
+                near_full_active_slots_peak=full_peak, parking_events=len(parks),
+                idle_parking_events=sum('idle' in line for line in parks),
+                resume_events=sum('sfnx: slot ' in line and ' resumed:' in line for line in engine_log.splitlines()),
+                simultaneous_resident_contexts_confirmed=confirmed,
+                notice='Request success, stream overlap and resident context capacity are separate evidence. '
+                       'Confirmation covers the requested input target, not unused engine window space. '
+                       'Missing observations or any parking makes multi-slot residency unconfirmed.')
+
+
+def pool_evidence(case, engine_log):
+    """Pinned Scream's free_pages includes the arena's maximum lendable pages."""
+    matches = re.findall(r'K/V pool \((?:int8|fp16)\) (\d+) positions free',engine_log)
+    if not matches:
+        return None  # Unknown format: rely on actual observations, never invent a bound.
+    available = int(matches[-1])
+    simultaneous = min(case['slots'],max(case['concurrency']))
+    initial = case['target_prompt_tokens']-(case['output_tokens']+256 if case['turns']>1 else 0)
+    required = simultaneous*(initial+case['output_tokens'])
+    return dict(advertised_positions=available, requested_positions=required,
+                simultaneous_contexts=simultaneous, necessary_bound_satisfied=required<=available)
+
+
 def execute_case(base, case, root, data, directory, reserve):
     initial = idle_window()
     directory.mkdir(mode=0o700)
@@ -371,6 +433,7 @@ def execute_case(base, case, root, data, directory, reserve):
     if memory_max < 16*2**30:
         raise RuntimeError('Insufficient memory for an isolated candidate')
     rows = []
+    slot_samples = []
     result = dict(case=case, passed=False, memory_limit_bytes=memory_max, transient_unit=unit)
 
     def monitor():
@@ -393,6 +456,22 @@ def execute_case(base, case, root, data, directory, reserve):
                 monitor_done.wait(1)
 
     thread = threading.Thread(target=monitor, daemon=True)
+    observer = None
+
+    def observe(api):
+        with (directory/'slots.jsonl').open('x') as stream:
+            os.fchmod(stream.fileno(),0o600)
+            while not monitor_done.is_set():
+                try:
+                    live = api.json('/metrics',timeout=2).get('live',{})
+                    sample = dict(monotonic=time.monotonic(), slots=live.get('slots',[]),
+                                  running=live.get('running'),waiting=live.get('waiting'),
+                                  outside_slots=live.get('outside_slots'),prompt_read=live.get('prompt_read'))
+                    slot_samples.append(sample)
+                    stream.write(json.dumps(sample)+'\n');stream.flush()
+                except Exception:
+                    pass  # Sampling gaps do not disable the independent hardware guard.
+                monitor_done.wait(.5)
     try:
         with (directory/'server.private.log').open('x') as log:
             os.fchmod(log.fileno(), 0o600)
@@ -441,10 +520,16 @@ def execute_case(base, case, root, data, directory, reserve):
                 raise RuntimeError('Engine fell back from requested slots/context')
             if props.get('model_alias') != 'p100-concurrency-test' or props.get('is_sleeping'):
                 raise RuntimeError('Unexpected candidate identity/state')
+            log_path = directory/'engine.log'
+            result['pool_evidence'] = pool_evidence(case,log_path.read_text(errors='replace') if log_path.exists() else '')
+            if case['tier']=='probe' and result['pool_evidence'] is not None and not result['pool_evidence']['necessary_bound_satisfied']:
+                raise RuntimeError('Advertised aggregate K/V pool cannot hold the requested resident contexts; no measured wave launched')
             # Unmeasured warmup; no synthetic result is used as a measured sample.
             warmup = api.generate([{'role':'user','content':'Say ready.'}], 32, threading.Barrier(1), time.monotonic()+120)
             warmup.pop('text')
             save(directory/'warmup.json', warmup)
+            observer = threading.Thread(target=observe,args=(api,),daemon=True)
+            observer.start()
             for count in case['concurrency']:
                 for trial in range(case['repeats']):
                     if stopped.is_set():
@@ -460,6 +545,11 @@ def execute_case(base, case, root, data, directory, reserve):
         monitor_done.set()
         if thread.ident:
             thread.join(timeout=12)
+        if observer is not None:
+            observer.join(timeout=4)
+        log_path = directory/'engine.log'
+        result['context_evidence'] = context_evidence(case,rows,slot_samples,
+            log_path.read_text(errors='replace') if log_path.exists() else '')
         result['guard_errors'] = failure
         samples = [json.loads(line) for line in (directory/'telemetry.jsonl').read_text().splitlines()] if thread.ident else []
         if samples:
@@ -487,6 +577,7 @@ def summarize(results):
                 rates.append(sum(r['completion_tokens'] for r in group)/
                              (max(r['ended'] for r in group)-min(r['started'] for r in group)))
             latencies = sorted(r['ttft_s'] for r in rows)
+            completions = sorted(r['wall_s'] for r in rows)
             events = sorted([(r['first_generated_at'],1) for r in rows]+
                             [(r['last_generated_at'],-1) for r in rows])
             active = peak = 0
@@ -495,13 +586,20 @@ def summarize(results):
                 peak = max(peak, active)
             summaries.append(dict(slots=result['case']['slots'], context=result['case']['context'],
                 concurrency=concurrency, turn=kind, tier=result['case']['tier'], passed=result['passed'],
+                initial_prompt_target=result['case']['target_prompt_tokens']-
+                    (result['case']['output_tokens']+256 if result['case']['turns']>1 else 0),
+                requested_output_tokens=result['case']['output_tokens'],
+                idle_between_turns_s=result['case'].get('idle_between_turns_s',0),
                 requests=len(rows), aggregate_output_tokens_s_median=statistics.median(rates),
                 ttft_s_median=statistics.median(latencies),
                 ttft_s_p95=latencies[max(0, math.ceil(.95*len(latencies))-1)],
+                completion_s_median=statistics.median(completions),
+                completion_s_p95=completions[max(0, math.ceil(.95*len(completions))-1)],
                 max_wall_s=max(r['wall_s'] for r in rows),
                 peak_overlapping_generated_streams=peak,
                 output_budget_fraction_median=statistics.median(r['completion_tokens']/r['requested_output_tokens'] for r in rows),
                 resources=result.get('resources'),
+                context_evidence=result.get('context_evidence'),
                 notice='End-to-end throughput includes prefill/queueing; decode rate is based on streamed token counts, not per-token timestamps.'))
     return summaries
 
@@ -509,12 +607,18 @@ def summarize(results):
 def recommendations(summary):
     """Compare like-for-like capacity workloads, without declaring a universal winner."""
     eligible = [r for r in summary if r['passed'] and r['tier']=='capacity'
-                and r['concurrency']==r['slots'] and r['requests']>=3*r['slots']
+                and r['requests']>=3*r['concurrency']
                 and r['output_budget_fraction_median']>=.9]
     choices = []
-    for context, turn in sorted({(r['context'],r['turn']) for r in eligible}):
-        rows = [r for r in eligible if (r['context'],r['turn'])==(context,turn)]
-        choices.append(dict(context=context,turn=turn,
+    def workload(row):
+        return (row['context'],row['turn'],row['concurrency'],
+                row.get('initial_prompt_target',0),row.get('requested_output_tokens',0),
+                row.get('idle_between_turns_s',0))
+    for key in sorted({workload(r) for r in eligible}):
+        rows = [r for r in eligible if workload(r)==key]
+        choices.append(dict(context=key[0],turn=key[1],clients=key[2],
+            initial_prompt_target=key[3],requested_output_tokens=key[4],
+            idle_between_turns_s=key[5],
             best_aggregate=min(rows,key=lambda r:-r['aggregate_output_tokens_s_median']),
             best_first_token_latency=min(rows,key=lambda r:r['ttft_s_p95'])))
     return dict(comparisons=choices, notice='Candidates, not production recommendations. '
@@ -528,17 +632,46 @@ def main():
     parser.add_argument('--window-confirmed', action='store_true')
     parser.add_argument('--slots', type=int, nargs='+', choices=SLOTS, default=list(SLOTS))
     parser.add_argument('--contexts', type=int, nargs='+', choices=CONTEXTS, default=list(CONTEXTS))
-    parser.add_argument('--tier', choices=('screen','capacity'), default='screen')
+    parser.add_argument('--tier', choices=('screen','probe','capacity'), default='screen')
     parser.add_argument('--output-tokens', type=int, choices=(256,1024,8192))
+    parser.add_argument('--clients', type=int, nargs='+', choices=range(1,9),
+                        help='Override client counts for matched-load comparisons')
+    parser.add_argument('--prompt-tokens', type=int,
+                        help='Target initial input length instead of near-limit input')
+    parser.add_argument('--repeats', type=int, choices=range(1,6),
+                        help='Override trial count; fewer than three cannot enter rankings')
+    parser.add_argument('--idle-between-turns', type=int, choices=range(0,301), default=0,
+                        help='Guarded idle seconds before follow-up requests')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--base-profile', type=Path)
     parser.add_argument('--reserve-gib', type=int, choices=range(4,33), default=8)
     args = parser.parse_args()
     cases = matrix(set(args.slots), set(args.contexts), args.tier)
+    if args.repeats:
+        for case in cases:
+            case['repeats'] = args.repeats
+    if args.idle_between_turns:
+        if any(case['turns']<2 for case in cases):
+            parser.error('Inter-turn idle requires a multi-turn capacity workload')
+        for case in cases:
+            case['idle_between_turns_s'] = args.idle_between_turns
     if args.output_tokens:
         for case in cases:
             case['output_tokens'] = args.output_tokens
             case['target_prompt_tokens'] = min(case['target_prompt_tokens'], case['context']-args.output_tokens-1024)
+    if args.clients:
+        for case in cases:
+            case['concurrency'] = sorted(set(args.clients))
+    if args.prompt_tokens is not None:
+        if not 512 <= args.prompt_tokens <= 524288:
+            parser.error('Prompt target must be 512..524288 tokens')
+        for case in cases:
+            reserved = case['output_tokens']+256 if case['turns']>1 else 0
+            budget = args.prompt_tokens+reserved
+            if budget+case['output_tokens']+1024 > case['context']:
+                parser.error('Prompt, follow-up and output reserves do not fit the requested context')
+            case['target_prompt_tokens'] = budget
+            case['initial_prompt_override'] = args.prompt_tokens
     if not args.execute:
         print(json.dumps(dict(execution_enabled=False, cases=cases,
                               notice='Offline plan only. No network, subprocess or hardware access.'), indent=2))
@@ -589,7 +722,7 @@ def run_matrix(args, cases):
                           guard_errors=['Preflight or cleanup failure; review before continuing'])
             save(directory/f'abort-{index:03}.json', result)
         results.append(result)
-        print('passed' if result['passed'] else 'failed; matrix stopped for review', flush=True)
+        print('passed' if result['passed'] else 'failed; see preserved evidence and guard status', flush=True)
         if not result['passed']:
             if result.get('guard_errors'):
                 break  # A thermal/RAM/policy guard abort ends the entire experiment.
