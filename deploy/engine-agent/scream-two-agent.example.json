@@ -1,0 +1,18 @@
+{
+  "unit_file": "/home/YOUR_USER/.config/systemd/user/p100-lab-scream-two-agent.service",
+  "unit_sha256": "REPLACE_WITH_REVIEWED_UNIT_SHA256",
+  "endpoint": "http://127.0.0.1:8088",
+  "upstream_token_file": "/home/YOUR_USER/inference/scream-flash-next-two-agent/inference-key",
+  "model_label": "Flash Next Two Agents — Queued 256K",
+  "serving_profile": {
+    "alias": "scream-flash-next-iq3-s-two-agent",
+    "quantization": "IQ3_S",
+    "context": 262144,
+    "max_output": 8192,
+    "reasoning": true,
+    "vision": true,
+    "generation_slots": 1,
+    "conversation_cache_mib": 12288,
+    "client_default_thinking": false
+  }
+}

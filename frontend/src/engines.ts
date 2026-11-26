@@ -6,6 +6,7 @@ export const engineNames: Record<string, string> = {
   strata: 'Strata',
   scream: 'Scream P100',
   'scream-512k': 'Scream P100 512K',
+  'scream-two-agent': 'Scream P100 Two Agents (Queued 256K)',
   inkling: 'Inkling 2 Mini',
 };
 
@@ -16,4 +17,7 @@ export type ServingProfile = {
   max_output: number;
   reasoning: boolean;
   vision: boolean;
+  generation_slots?: number;
+  conversation_cache_mib?: number;
+  client_default_thinking?: boolean;
 };

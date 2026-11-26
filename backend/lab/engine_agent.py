@@ -31,13 +31,20 @@ OPERATIONS = {'status', 'start', 'stop', 'enable_boot', 'disable_boot'}
 
 
 def serving_profile(profile):
-    if (not isinstance(profile, dict) or set(profile) != {'alias', 'quantization', 'context', 'max_output', 'reasoning', 'vision'}
+    required = {'alias', 'quantization', 'context', 'max_output', 'reasoning', 'vision'}
+    optional = {'generation_slots', 'conversation_cache_mib', 'client_default_thinking'}
+    if (not isinstance(profile, dict) or not required <= set(profile) or set(profile) - required - optional
             or not isinstance(profile['alias'], str) or not re.fullmatch(r'[A-Za-z0-9._-]{1,160}', profile['alias'])
             or not isinstance(profile['quantization'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,32}', profile['quantization'])
             or type(profile['context']) is not int or not 512 <= profile['context'] <= 1_000_000
             or type(profile['max_output']) is not int or not 0 < profile['max_output'] < profile['context']
             or type(profile['reasoning']) is not bool or type(profile['vision']) is not bool):
         raise ValueError('Invalid fixed serving profile')
+    for name, lower, upper in [('generation_slots', 1, 4), ('conversation_cache_mib', 0, 65536)]:
+        if name in profile and (type(profile[name]) is not int or not lower <= profile[name] <= upper):
+            raise ValueError('Invalid fixed serving profile metadata')
+    if 'client_default_thinking' in profile and type(profile['client_default_thinking']) is not bool:
+        raise ValueError('Invalid thinking preset default')
     return profile
 
 

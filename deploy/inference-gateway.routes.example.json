@@ -32,6 +32,10 @@
     "scream-512k": {
       "url": "http://127.0.0.1:8087",
       "key_file": "/home/YOUR_USER/inference/scream-flash-next-512k/inference-key"
+    },
+    "scream-two-agent": {
+      "url": "http://127.0.0.1:8088",
+      "key_file": "/home/YOUR_USER/inference/scream-flash-next-two-agent/inference-key"
     }
   },
   "models": {
@@ -111,6 +115,14 @@
       "engine": "scream-512k",
       "name": "Flash-Next IQ3_S 512K (Scream P100)",
       "context": 524288,
+      "max_output": 8192,
+      "reasoning": true,
+      "vision": true
+    },
+    "scream-flash-next-iq3-s-two-agent": {
+      "engine": "scream-two-agent",
+      "name": "Flash Next Two Agents (Queued 256K)",
+      "context": 262144,
       "max_output": 8192,
       "reasoning": true,
       "vision": true

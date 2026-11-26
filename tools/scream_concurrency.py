@@ -28,7 +28,7 @@ CONTEXTS = (32768, 65536, 131072, 262144, 524288)
 SLOTS = (1, 2, 3, 4)
 PORT = 18087
 UNITS = ('kmic-qwen27b', 'p100-lab-kmic-moe', 'p100-lab-strata',
-         'p100-lab-scream', 'p100-lab-scream-512k', 'p100-lab-inkling',
+         'p100-lab-scream', 'p100-lab-scream-512k', 'p100-lab-scream-two-agent', 'p100-lab-inkling',
          'p100-lab-pxa', 'p100-lab-qr0n')
 
 

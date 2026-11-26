@@ -27,7 +27,7 @@ from . import model_profiles
 from . import fan_control
 
 
-EngineId = Literal["kmic", "kmic-moe", "pxa", "qr0n", "strata", "scream", "scream-512k", "inkling"]
+EngineId = Literal["kmic", "kmic-moe", "pxa", "qr0n", "strata", "scream", "scream-512k", "scream-two-agent", "inkling"]
 
 
 class Benchmark(BaseModel):

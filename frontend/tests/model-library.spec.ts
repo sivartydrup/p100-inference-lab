@@ -98,6 +98,46 @@ for (const [engine, alias, name, quantization, context] of [
   expect(config.models[0]).toMatchObject({ id: alias, contextWindow: context, maxTokens: 4096, input: ['text', 'image'] });
 });
 
+test('two-agent queued profile coexists with 512K and exports separate non-thinking settings', async ({ page }) => {
+  const alias = 'scream-flash-next-iq3-s-two-agent';
+  const services = [
+    { id: 'scream-512k', configured_model: 'Flash Next 512K', serving_profile: {
+      alias: 'scream-flash-next-iq3-s-512k', quantization: 'IQ3_S', context: 524288,
+      max_output: 8192, reasoning: true, vision: true } },
+    { id: 'scream-two-agent', configured_model: 'Flash Next Two Agents — Queued 256K', serving_profile: {
+      alias, quantization: 'IQ3_S', context: 262144, max_output: 8192, reasoning: true, vision: true,
+      generation_slots: 1, conversation_cache_mib: 12288, client_default_thinking: false } },
+  ].map(item => ({ ...item, state: 'inactive', controls_available: true, ready: false,
+    unit: `p100-lab-${item.id}.service` }));
+  await page.route('**/api/**', route => {
+    const key = route.request().url().split('/').pop()!;
+    return route.fulfill({ json: key === 'engines' ? { controls_enabled: true, items: services } : fixture[key] });
+  });
+  await page.goto('/');
+  await page.getByLabel('Access token', { exact: true }).fill(token);
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  const library = page.getByRole('region', { name: 'Model library' });
+  await library.getByRole('combobox', { name: 'Engine', exact: true }).selectOption('scream-two-agent');
+  await expect(library.getByText('1 — model requests queue')).toBeVisible();
+  await expect(library.getByText('12 GiB', { exact: true })).toBeVisible();
+  await expect(library.getByText('262,144 tokens', { exact: true })).toBeVisible();
+  let event = page.waitForEvent('download');
+  await library.getByRole('button', { name: 'Download Oh My Pi preset' }).click();
+  let download = await event;
+  let config = JSON.parse(await readFile((await download.path())!, 'utf8')).providers;
+  expect(config.p100).toBeUndefined();
+  const queued = config['p100-' + alias].models[0];
+  expect(queued).toMatchObject({ id: alias, contextWindow: 262144, maxTokens: 8192, reasoning: false });
+  expect(queued.compat.extraBody.chat_template_kwargs.enable_thinking).toBe(false);
+  await library.getByRole('combobox', { name: 'Engine', exact: true }).selectOption('scream-512k');
+  event = page.waitForEvent('download');
+  await library.getByRole('button', { name: 'Download Oh My Pi preset' }).click();
+  download = await event;
+  config = JSON.parse(await readFile((await download.path())!, 'utf8')).providers;
+  expect(config.p100.models[0]).toMatchObject({ contextWindow: 524288, maxTokens: 8192, reasoning: true });
+  expect(config.p100.models[0].compat).toBeUndefined();
+});
+
 test('reviewed fast and reasoning profiles export distinct client settings without credentials or host paths', async ({ page }) => {
   const settings = { context: 32768, batch: 1024, ubatch: 512 };
   const catalog = ['Fast', 'Reasoning'].map(mode => ({
