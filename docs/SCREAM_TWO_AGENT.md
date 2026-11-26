@@ -81,3 +81,12 @@ restores the prior integration on failure. It does not start inference, enable
 boot, restart Docker/Netdata/SSH, or write fan/driver/power settings. Brief agent,
 gateway and dashboard restarts apply the new option only during the confirmed
 idle window. Raw diagnostics and credentials stay in the private host backup.
+
+If an installation failed after creating the new profile but before applying it,
+an operator can prepare a pinned recovery manifest. Recovery requires the private
+report to attest a successful rollback, exact hashes for the unused profile/key,
+an absent service unit and empty inference logs. The installer preserves that
+directory under a unique `.failed-…` name before creating the replacement; it
+does not delete or overwrite the failed attempt. Unknown or changed artifacts
+remain untouched and require inspection. Standalone gateway validation expands
+systemd's `%h` explicitly while retaining the configured virtual-environment path.
