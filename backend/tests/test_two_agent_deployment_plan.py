@@ -59,7 +59,7 @@ def test_baseline_retries_transient_missing_metadata_but_allows_unconfigured_eng
     assert module.engine_snapshot('candidate',{'kmic'})==stable
     assert len(calls)==2
     monkeypatch.setattr(module,'data',lambda *args:{'items':[dict(id='kmic',state='unavailable')]})
-    with pytest.raises(RuntimeError):module.engine_snapshot('candidate',{'kmic'},attempts=2)
+    assert module.engine_snapshot('candidate',{'kmic'},attempts=2)==[dict(id='kmic',state='unavailable')]
 
 
 @pytest.fixture

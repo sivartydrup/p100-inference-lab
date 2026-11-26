@@ -140,14 +140,14 @@ def configured_python(unit,home='/home/trav'):
 
 
 def engine_snapshot(container,configured,attempts=12):
-    """A busy agent can transiently omit profile metadata; never pin that as baseline."""
+    """Prefer complete observations; unavailable metadata remains unknown."""
     for attempt in range(attempts):
         items=data(container,'/api/engines')['items']
         present={item['id']:item for item in items}
         if all(name in present and present[name].get('state')!='unavailable' for name in configured):
             return items
         if attempt+1<attempts:time.sleep(1)
-    raise RuntimeError('Configured engine status remained unavailable; no baseline accepted')
+    return items  # An existing unavailable optional engine must not block adding one.
 
 
 def preserve_failed_profile(evidence,builder,identifier,owner=1000,report_owner=0):
@@ -289,7 +289,9 @@ finally:os.unlink(p)
         for row in engines:
             if row['id'] in previous:
                 assert row['unit']==previous[row['id']]['unit']
-                assert row.get('serving_profile')==previous[row['id']].get('serving_profile')
+                known_profile=previous[row['id']].get('serving_profile')
+                if known_profile is not None:
+                    assert row.get('serving_profile')==known_profile
         entry=next(row for row in engines if row['id']==ENGINE_ID)
         assert entry['controls_available'] and entry['state']=='inactive' and not entry['ready']
         assert entry['serving_profile']==SERVING_PROFILE
@@ -324,6 +326,7 @@ finally:os.unlink(p)
             endpoint=f'http://127.0.0.1:{PORT}',upstream_token_file=str(PROFILE/'inference-key'),
             model_label=LABEL,serving_profile=SERVING_PROFILE)}
         new_config=runtime/'agent-config.json';atomic(new_config,json.dumps(config,indent=2).encode(),0o640,0,10001)
+        assert {k:v for k,v in json.loads(new_config.read_text()).items() if k!=ENGINE_ID}==agent_config,'Existing admitted configuration changed'
         # Validate in the actual unprivileged account/group, not as root.
         validation=f"import sys,json;sys.path.insert(0,{str(source/'backend')!r});from lab.engine_agent import Controller;Controller(json.load(open({str(new_config)!r})))"
         run('/usr/sbin/runuser','-u','trav','-g','p100-lab-api','--','/usr/bin/python3','-I','-c',validation)
