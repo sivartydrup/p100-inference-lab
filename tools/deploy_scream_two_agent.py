@@ -9,7 +9,8 @@ import hashlib
 import io
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import re
 import secrets
 import shlex
 import signal
@@ -123,6 +124,65 @@ def replace_module(unit,module,launcher):
     return unit.replace(old,'-I '+str(launcher))
 
 
+def configured_python(unit,home='/home/trav'):
+    """Resolve the admitted user unit's %h before invoking outside systemd.
+
+    Keep the venv interpreter path: resolving its symlink would lose its venv.
+    """
+    commands=[line.split('=',1)[1] for line in unit.splitlines() if line.startswith('ExecStart=')]
+    if len(commands)!=1:raise ValueError('Expected one gateway service command')
+    arguments=shlex.split(commands[0])
+    executable=arguments[0].replace('%h',str(home).replace('\\','/'))
+    path=PurePosixPath(executable)
+    if '%' in executable or not path.is_absolute() or not re.fullmatch(r'python(?:3(?:\.\d+)?)?',path.name):
+        raise ValueError('Unsupported gateway interpreter path; review the user unit')
+    return executable
+
+
+def engine_snapshot(container,configured,attempts=12):
+    """Prefer complete observations; unavailable metadata remains unknown."""
+    for attempt in range(attempts):
+        items=data(container,'/api/engines')['items']
+        present={item['id']:item for item in items}
+        if all(name in present and present[name].get('state')!='unavailable' for name in configured):
+            return items
+        if attempt+1<attempts:time.sleep(1)
+    return items  # An existing unavailable optional engine must not block adding one.
+
+
+def preserve_failed_profile(evidence,builder,identifier,owner=1000,report_owner=0):
+    """Quarantine only this installer's verified, rolled-back, unused artifact.
+
+    No recursive deletion or overwrite; all original bytes/permissions survive.
+    """
+    assert re.fullmatch(r'[a-f0-9]{10}',identifier),'Invalid recovery identifier'
+    backup=Path(evidence['backup'])
+    assert backup.parent==ROOT and backup.name.startswith('two-agent-backup-') and not backup.is_symlink(),'Unexpected recovery evidence path'
+    assert backup.stat().st_uid==report_owner and not stat.S_IMODE(backup.stat().st_mode)&0o077,'Recovery evidence must remain private'
+    record=backup/'acceptance.json'
+    assert record.is_file() and not record.is_symlink() and record.stat().st_uid==report_owner
+    report=json.loads(record.read_text())
+    assert report.get('passed') is False and report.get('rollback_verified') is True,'Recovery requires a verified rollback'
+    assert report.get('revision')==evidence['revision'],'Recovery revision changed'
+    assert PROFILE.is_dir() and not PROFILE.is_symlink() and PROFILE.stat().st_uid==owner
+    assert not stat.S_IMODE(PROFILE.stat().st_mode)&0o077,'Failed profile permissions changed'
+    assert PROFILE.resolve().parent==(HOME/'inference').resolve(),'Recovery target escaped inference directory'
+    assert not UNIT.exists() and not UNIT.is_symlink(),'An installed unit already refers to this profile'
+    assert {p.name for p in PROFILE.iterdir()}=={'profile.json','inference-key','logs'},'Unexpected files in failed profile; preserve for review'
+    for name in ('profile.json','inference-key'):
+        path=PROFILE/name;info=path.lstat()
+        assert stat.S_ISREG(info.st_mode) and info.st_uid==owner and not stat.S_IMODE(info.st_mode)&0o077
+        assert sha(path.read_bytes())==evidence[name+'_sha256'],'Failed profile changed after diagnostic'
+    logs=PROFILE/'logs'
+    assert logs.is_dir() and not logs.is_symlink() and logs.stat().st_uid==owner and not any(logs.iterdir()),'Failed profile has inference logs; review before recovery'
+    key=(PROFILE/'inference-key').read_text().strip()
+    assert json.loads((PROFILE/'profile.json').read_text())==builder(json.loads(BASE.read_text()),PROFILE,key),'Failed artifact differs from the admitted recipe'
+    destination=PROFILE.with_name(PROFILE.name+'.failed-'+identifier)
+    assert not destination.exists() and not destination.is_symlink(),'Recovery archive already exists'
+    PROFILE.rename(destination)
+    return destination
+
+
 def apply(package,manifest_sha):
     import fcntl
     import grp
@@ -141,7 +201,10 @@ def apply(package,manifest_sha):
         assert not p.is_symlink() and sha(p.read_bytes())==digest,'Existing deployment changed; nothing was installed'
     archive=(package/'source.tar').read_bytes()
     assert sha(archive)==manifest['source_sha256'],'Source bundle changed'
-    assert not any(p.exists() or p.is_symlink() for p in (PROFILE,UNIT)), 'Two-agent option already exists; no existing work will be overwritten'
+    assert not UNIT.exists() and not UNIT.is_symlink(),'Two-agent unit already exists; no existing work will be overwritten'
+    recovery=manifest.get('recover_failed_profile')
+    if PROFILE.exists() or PROFILE.is_symlink():
+        assert recovery is not None,'Two-agent profile already exists; reviewed recovery evidence required'
     lock=os.open('/run/lock/p100-two-agent-deployment.lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
     fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     identifier=uuid.uuid4().hex[:10]
@@ -177,7 +240,6 @@ def apply(package,manifest_sha):
     fan_pid=properties('p100-lab-fans.service',True)['MainPID']
     power_before=run('nvidia-smi','--query-gpu=uuid,power.limit,persistence_mode','--format=csv,noheader')
     state_before={unit:properties(unit) for unit in old_units}
-    original_engines=data(CONTAINER,'/api/engines')['items']
     baseline=dict(presets=data(CONTAINER,'/api/models')['presets'],
                   benchmarks=data(CONTAINER,'/api/benchmarks')['items'],
                   native_ids={r['id'] for r in data(CONTAINER,'/api/native-benchmarks')['items']})
@@ -186,10 +248,14 @@ def apply(package,manifest_sha):
     fan_before=data(CONTAINER,'/api/fan-controls')
     old_routes=json.loads(ROUTES.read_text())
     agent_text=AGENT.read_text();gateway_text=GATEWAY.read_text()
+    gateway_python=configured_python(gateway_text)
+    user(gateway_python,'-I','-c','import fastapi,httpx,pydantic')
     command=next(line.split('=',1)[1] for line in agent_text.splitlines() if line.startswith('ExecStart='))
     arguments=shlex.split(command);config_path=Path(arguments[arguments.index('--config')+1])
     assert str(config_path).startswith('/opt/p100-lab-') and config_path.name=='agent-config.json' and not config_path.is_symlink()
     agent_config=json.loads(config_path.read_text())
+    configured={'kmic'} | (set(agent_config) & set(MANAGED_UNITS))
+    original_engines=engine_snapshot(CONTAINER,configured)
     assert ENGINE_ID not in agent_config and ENGINE_ID not in old_routes['upstreams'] and ALIAS not in old_routes['models']
     saved={p:(p.read_bytes(),stat.S_IMODE(p.stat().st_mode),p.stat().st_uid,p.stat().st_gid) for p in (AGENT,GATEWAY,ROUTES,GUARD,MARKER)}
     for p,entry in saved.items():atomic(backup/p.name,*entry)
@@ -217,13 +283,15 @@ finally:os.unlink(p)
     changed=False;switched=False;created_unit=False
 
     def check(container):
-        engines=data(container,'/api/engines')['items']
+        engines=engine_snapshot(container,configured|{ENGINE_ID})
         previous={row['id']:row for row in original_engines}
         assert {row['id'] for row in engines}==set(previous)|{ENGINE_ID}
         for row in engines:
             if row['id'] in previous:
                 assert row['unit']==previous[row['id']]['unit']
-                assert row.get('serving_profile')==previous[row['id']].get('serving_profile')
+                known_profile=previous[row['id']].get('serving_profile')
+                if known_profile is not None:
+                    assert row.get('serving_profile')==known_profile
         entry=next(row for row in engines if row['id']==ENGINE_ID)
         assert entry['controls_available'] and entry['state']=='inactive' and not entry['ready']
         assert entry['serving_profile']==SERVING_PROFILE
@@ -242,6 +310,10 @@ finally:os.unlink(p)
         idle(old_units)
         for filename,digest in manifest['expected_files'].items():assert sha(Path(filename).read_bytes())==digest,'Deployment changed during build'
         assert all(sha(Path(p).read_bytes())==value for p,value in compose_hashes.items()),'Compose overlay changed during build'
+        if PROFILE.exists():
+            archived=preserve_failed_profile(recovery,build_two_agent_profile,identifier)
+            report['preserved_failed_profile']=str(archived)
+            print('Preserved failed profile: '+str(archived),flush=True)
         PROFILE.mkdir(mode=0o700);os.chown(PROFILE,1000,1000)
         (PROFILE/'logs').mkdir(mode=0o700);os.chown(PROFILE/'logs',1000,1000)
         key=secrets.token_urlsafe(48)
@@ -254,6 +326,7 @@ finally:os.unlink(p)
             endpoint=f'http://127.0.0.1:{PORT}',upstream_token_file=str(PROFILE/'inference-key'),
             model_label=LABEL,serving_profile=SERVING_PROFILE)}
         new_config=runtime/'agent-config.json';atomic(new_config,json.dumps(config,indent=2).encode(),0o640,0,10001)
+        assert {k:v for k,v in json.loads(new_config.read_text()).items() if k!=ENGINE_ID}==agent_config,'Existing admitted configuration changed'
         # Validate in the actual unprivileged account/group, not as root.
         validation=f"import sys,json;sys.path.insert(0,{str(source/'backend')!r});from lab.engine_agent import Controller;Controller(json.load(open({str(new_config)!r})))"
         run('/usr/sbin/runuser','-u','trav','-g','p100-lab-api','--','/usr/bin/python3','-I','-c',validation)
@@ -268,9 +341,8 @@ finally:os.unlink(p)
         routes['upstreams'][ENGINE_ID]=dict(url=f'http://127.0.0.1:{PORT}',key_file=str(PROFILE/'inference-key'))
         routes['models'][ALIAS]=dict(engine=ENGINE_ID,name=LABEL,context=262144,max_output=8192,reasoning=True,vision=True)
         test_routes=runtime/'gateway-routes.json';atomic(test_routes,json.dumps(routes).encode(),0o600,1000,1000)
-        gateway_args=shlex.split(next(line.split('=',1)[1] for line in gateway_text.splitlines() if line.startswith('ExecStart=')))
         validation=f"import sys,json;sys.path.insert(0,{str(source/'backend')!r});from lab.inference_gateway import Configuration,create_app;create_app(Configuration.model_validate(json.load(open({str(test_routes)!r}))))"
-        user(gateway_args[0],'-I','-c',validation)
+        user(gateway_python,'-I','-c',validation)
         changed=True
         for p,value in [(AGENT,new_agent.encode()),(GATEWAY,new_gateway.encode()),(ROUTES,json.dumps(routes,indent=2).encode()),
                         (GUARD,(source/'deploy/gpu-engine-idle.sh').read_bytes())]:atomic(p,value,*saved[p][1:])
