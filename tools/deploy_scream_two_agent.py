@@ -345,7 +345,7 @@ finally:os.unlink(p)
         user(gateway_python,'-I','-c',validation)
         changed=True
         for p,value in [(AGENT,new_agent.encode()),(GATEWAY,new_gateway.encode()),(ROUTES,json.dumps(routes,indent=2).encode()),
-                        (GUARD,(source/'deploy/gpu-engine-idle.sh').read_bytes())]:atomic(p,value,*saved[p][1:])
+                        (GUARD,(source/'deploy/gpu-engine-idle.sh').read_bytes().replace(b'\r\n',b'\n'))]:atomic(p,value,*saved[p][1:])
         user('/usr/bin/systemctl','--user','daemon-reload')
         run('systemctl','daemon-reload');run('systemctl','restart','p100-lab-engine-agent.service')
         user('/usr/bin/systemctl','--user','restart','p100-inference-gateway.service')
